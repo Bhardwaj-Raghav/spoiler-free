@@ -1,0 +1,17 @@
+{
+  "name": "Spoiler Free",
+  "version": "0.0.1",
+  "description": "Block videos, shorts from youtube to keep it spoiler free.",
+  "manifest_version": 3,
+  "author": "Raghav Bhardwaj",
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Spoiler Free"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["jquery.js", "script.js"]
+    }
+  ]
+}
