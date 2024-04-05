@@ -1,11 +1,7 @@
 
-chrome.runtime.onStartup.addListener(
-    function () {
+async function setTheme() {
 
-        chrome.tabs.create({ url: "https://google.ca" });
-        setInterval(() => {
-            console.log("This is Test 1");
+}
 
-        }, 1000)
-    },
-);
+
+chrome.runtime.onStartup.addListener(setTheme);
