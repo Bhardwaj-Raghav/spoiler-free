@@ -1,0 +1,25 @@
+{
+  "name": "spoiler-free",
+  "version": "0.0.2",
+  "description": "Block videos, shorts from youtube to keep it spoiler free.",
+  "main": "intex.html",
+  "repository": "https://github.com/Bhardwaj-Raghav/spoiler-free.git",
+  "author": "Raghav Bhardwaj <r001dbhardwaj@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "watch": "yarn run watch-ts | yarn run watch-sass",
+    "watch-sass": "node-sass --watch src/style/style.scss -o ./assets/style/ --source-map true",
+    "watch-ts": "tsc-watch -p tsconfig.json"
+  },
+  "devDependencies": {
+    "node-sass": "^9.0.0",
+    "sass": "^1.74.1",
+    "tsc": "^2.0.4",
+    "tsc-watch": "^6.2.0"
+  },
+  "dependencies": {
+    "@types/chrome": "^0.0.263",
+    "typescript": "^5.4.4"
+  }
+}

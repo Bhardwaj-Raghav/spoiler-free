@@ -44,7 +44,7 @@ body {
   }
   &.dark-theme {
     --color-1: #222831;
-    --color-2: #31363f;
+    --color-2: #31363f;  
     --toggle-off: #b4b9c0;
     --color-3: #44696b;
     --color-4: #eeeeee;
@@ -58,6 +58,10 @@ body {
   color: var(--text-dark);
   max-width: 100%;
   width: 300px;
+  transition: background-color 200ms ease-out, color 200ms ease-out, box-shadow 200ms ease-out;
+  label {
+    cursor: pointer;
+  }
 }
 
 h1 {
@@ -151,6 +155,7 @@ section#main {
       padding: 10px 20px;
       border-radius: 5px;
       width: 100%;
+      color: var(--text-dark);
       &::placeholder {
         color: var(--text-light);
       }
@@ -218,7 +223,9 @@ section#footer {
     padding: 16px;
     text-align: center;
     &:first-child {
-      margin-right: 2px;
+      margin-right: 2px; 
     }
   }
 }
+
+ 
