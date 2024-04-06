@@ -17,8 +17,8 @@ function createRegexFromWords(words: string[]) {
 
 
 chrome.storage.local.get().then(({ keywords, settings }) => {
-    if (keywords.keywords) {
-        keywordRegex = createRegexFromWords(keywords.keywords);
+    if (keywords) {
+        keywordRegex = createRegexFromWords(keywords);
         initFunctions();
     }
     if (settings) {
@@ -28,27 +28,34 @@ chrome.storage.local.get().then(({ keywords, settings }) => {
         _settings.channel = settings.channel;
     }
     console.log(keywords, keywordRegex);
-
 });
 
 const initFunctions = () => {
-
-
     const mutationObserver = (mutation, observer) => {
         requestAnimationFrame(() => {
             if (_settings.title) {
-                document.querySelectorAll("yt-formatted-string.style-scope.ytd-rich-grid-media#video-title").forEach((element: HTMLElement) => {
-                    const title = element.innerText;
-                    if (doesMatchKeyWords(title)) {
-                        console.log(title);
-                        element.closest("ytd-rich-item-renderer.style-scope").remove();
-                        // Update session list for removed videos (may be)
+                let newTitles = false;
+                for (let i = 0; i < mutation.length; i++) {
+                    if ('video-title' == mutation[i].target.id && 'style-scope ytd-rich-grid-media' == mutation[i].target.className) {
+                        newTitles = true;
+                        console.log("newTitles");
+                        break;
                     }
-
-                });
+                }
+                if (newTitles) {
+                    document.querySelectorAll("yt-formatted-string.style-scope.ytd-rich-grid-media#video-title").forEach((element: HTMLElement) => {
+                        const title = element.innerText;
+                        if (doesMatchKeyWords(title)) {
+                            console.log(title);
+                            element.closest("ytd-rich-item-renderer.style-scope").remove();
+                            // Update session list for removed videos (may be)
+                        }
+                    });
+                }
             }
         });
     }
+
     const domLayoutObserver = new MutationObserver(mutationObserver);
     domLayoutObserver.observe(document.body, {
         childList: true,
