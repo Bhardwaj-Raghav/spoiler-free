@@ -14,7 +14,7 @@ const settingToggles: HTMLCollectionOf<HTMLInputElement> = document.getElementsB
 const totalKeywords: HTMLElement = document.getElementById("total-keywords-added");
 const totalBlocked: HTMLElement = document.getElementById("total-blocked-videos");
 
-let localKeywords = [];
+let localKeywords: string[] = [];
 let localSettings = {
     title: true,
     search: true,
@@ -28,13 +28,12 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
         themeToggle.setAttribute("checked", "checked");
     }
     if (keywords) {
-        localKeywords = keywords
-        keywords.forEach(keyword => {
+        localKeywords = keywords;
+        localKeywords.forEach(keyword => {
             createKeywordListItem(keyword);
         });
     }
     totalKeywords.innerText = localKeywords.length.toString();
-    console.log(settings);
     if (settings) {
         localSettings.title = settings.title;
         localSettings.search = settings.search;
@@ -49,15 +48,12 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
                 localSettings[element.value] = element.checked;
                 await chrome.storage.local.set({ settings: localSettings });
             }
-            console.log(element);
         }
     }
     if (blocked) {
         totalBlocked.innerText = blocked;
     }
 });
-
-
 
 openList.addEventListener("click", function () {
     keywordListPage.classList.add("is-open");
