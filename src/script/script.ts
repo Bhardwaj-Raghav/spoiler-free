@@ -17,6 +17,7 @@ const totalBlocked: HTMLElement = document.getElementById("total-blocked-videos"
 let localKeywords: string[] = [];
 let localSettings = {
     title: true,
+    subscription: true,
     search: true,
     shorts: true,
     channel: true,
@@ -36,6 +37,7 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
     totalKeywords.innerText = localKeywords.length.toString();
     if (settings) {
         localSettings.title = settings.title;
+        localSettings.subscription = settings.subscription;
         localSettings.search = settings.search;
         localSettings.shorts = settings.shorts;
         localSettings.channel = settings.channel;
