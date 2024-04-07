@@ -12,7 +12,7 @@ const openList: HTMLButtonElement = document.getElementById("open-keywords-list"
 const keywordList: HTMLElement = document.getElementById("keyword-list");
 const settingToggles: HTMLCollectionOf<HTMLInputElement> = document.getElementsByClassName("settings-toggle") as HTMLCollectionOf<HTMLInputElement>;
 const totalKeywords: HTMLElement = document.getElementById("total-keywords-added");
-const totalBlocked: HTMLElement = document.getElementById("total-blocked-videos");
+const totalBlockedCount: HTMLElement = document.getElementById("total-blocked-videos");
 
 let localKeywords: string[] = [];
 let localSettings = {
@@ -34,7 +34,7 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
             createKeywordListItem(keyword);
         });
     }
-    totalKeywords.innerText = localKeywords.length.toString();
+    totalKeywords.innerText = formatCount(localKeywords.length);
     if (settings) {
         localSettings.title = settings.title;
         localSettings.subscription = settings.subscription;
@@ -53,7 +53,7 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
         }
     }
     if (blocked) {
-        totalBlocked.innerText = blocked;
+        totalBlockedCount.innerText = formatCount(blocked);
     }
 });
 
@@ -115,3 +115,18 @@ const createKeywordListItem = (keyword: string) => {
     keywordList.appendChild(listItem);
 }
 
+const formatCount = (number: number) => {
+    let formattedNumber = number.toString();
+    if (number < 10_000) {
+        formattedNumber = new Intl.NumberFormat().format(number);
+    } else if (number >= 10_000 && number < 1_000_000) {
+        formattedNumber = `${new Intl.NumberFormat().format(number / 1000)}K`;
+    } else if (number >= 1_000_000 && number < 1_000_000_000) {
+        formattedNumber = `${new Intl.NumberFormat().format(number / 1000)}M`;
+    } else if (number >= 1_000_000_000 && number < 1_000_000_000_000) {
+        formattedNumber = `${new Intl.NumberFormat().format(number / 1000)}B`;
+    } else if (number >= 1_000_000_000_000) {
+        formattedNumber = `${new Intl.NumberFormat().format(number / 1000)}T`;
+    }
+    return formattedNumber;
+}

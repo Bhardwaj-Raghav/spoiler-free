@@ -8,6 +8,7 @@ let _settings = {
     shorts: true,
     channel: true,
 };
+let totalBlocked: number = 0;
 
 function createRegexFromWords(words: string[]) {
     // Escape special characters in each word and join them with '|' to create a regex pattern
@@ -16,8 +17,7 @@ function createRegexFromWords(words: string[]) {
     return new RegExp(regexPattern, 'i');
 }
 
-
-chrome.storage.local.get().then(({ keywords, settings }) => {
+chrome.storage.local.get().then(({ keywords, settings, blocked }) => {
     if (settings) {
         _settings.title = settings.title;
         _settings.subscription = settings.subscription;
@@ -29,7 +29,9 @@ chrome.storage.local.get().then(({ keywords, settings }) => {
         keywordRegex = createRegexFromWords(keywords);
         initFunctions();
     }
-    console.log(keywords, keywordRegex);
+    if (blocked) {
+        totalBlocked = blocked;
+    }
 });
 
 const initFunctions = () => {
@@ -95,24 +97,28 @@ const runSubscriptionPageFunc = () => {
     document.querySelectorAll(".yt-simple-endpoint.style-scope.ytd-grid-video-renderer").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
             element.closest("ytd-grid-video-renderer.style-scope.yt-horizontal-list-renderer").remove();
+            updateBlockedContentCount();
             // Update session list for removed videos (may be)
         }
     });
     document.querySelectorAll(".style-scope.ytd-reel-item-renderer").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
             element.closest("ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer").remove();
+            updateBlockedContentCount();
             // Update session list for removed videos (may be)
         }
     });
     document.querySelectorAll("yt-formatted-string.style-scope.ytd-rich-grid-media").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
             element.closest("ytd-rich-item-renderer.style-scope.ytd-rich-grid-row").remove();
+            updateBlockedContentCount();
             // Update session list for removed videos (may be)
         }
     });
     document.querySelectorAll(".style-scope.ytd-rich-grid-slim-media#video-title").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
             element.closest("ytd-rich-item-renderer.style-scope.ytd-rich-grid-row").remove();
+            updateBlockedContentCount();
             // Update session list for removed videos (may be)
         }
     });
@@ -121,6 +127,7 @@ const runShortRemoveFunc = () => {
     document.querySelectorAll("ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts yt-formatted-string.style-scope.reel-player-header-renderer").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
             element.closest("ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts").remove();
+            updateBlockedContentCount();
             // Update session list for removed videos (may be)
         }
     });
@@ -129,18 +136,6 @@ const runShortRemoveFunc = () => {
 const runRemoveFunc = (mutation, tagname: string, id: string, className: string, querySelecter: string[], elementToDeleteSelector: string[]) => {
     let newTitles = false;
     for (let i = 0; i < mutation.length; i++) {
-        console.log({
-            Value: id == mutation[i].target.id &&
-                className == mutation[i].target.className &&
-                tagname == mutation[i].target.tagName.toLowerCase(),
-            id,
-            mId: mutation[i].target.id,
-            className,
-            mClassName: mutation[i].target.className,
-            tagname,
-            mTagname: mutation[i].target.tagName.toLowerCase()
-        });
-
         if (
             id == mutation[i].target.id &&
             className == mutation[i].target.className &&
@@ -151,11 +146,11 @@ const runRemoveFunc = (mutation, tagname: string, id: string, className: string,
         }
     }
     if (newTitles) {
-        console.log("newTitles");
         for (let i = 0; i < querySelecter.length; i++) {
             document.querySelectorAll(querySelecter[i]).forEach((element: HTMLElement) => {
                 if (doesMatchKeyWords(element.innerText)) {
                     element.closest(elementToDeleteSelector[i]).remove();
+                    updateBlockedContentCount();
                     // Update session list for removed videos (may be)
                 }
             });
@@ -183,3 +178,8 @@ const currentPage = (): string => {
 const doesMatchKeyWords = (string) => {
     return keywordRegex.test(string);
 };
+
+const updateBlockedContentCount = async () => {
+    totalBlocked = totalBlocked + 100;
+    await chrome.storage.local.set({ 'blocked': totalBlocked });
+}
