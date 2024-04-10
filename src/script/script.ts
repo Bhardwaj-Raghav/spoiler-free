@@ -82,9 +82,9 @@ form.addEventListener("submit", async (e) => {
     input.value = "";
     const newKeywords = [...localKeywords, keyword];
     localKeywords = newKeywords;
-    await chrome.storage.local.set({ keywords: newKeywords });
+    await chrome.storage.local.set({ keywords: localKeywords });
     createKeywordListItem(keyword);
-    totalKeywords.innerText = formatCount(localKeywords.length)
+    totalKeywords.innerText = formatCount(localKeywords.length);
 });
 
 
@@ -108,7 +108,8 @@ const createKeywordListItem = (keyword: string) => {
             return v !== keyword;
         });
         localKeywords = newKeywords;
-        await chrome.storage.local.set({ keywords: newKeywords });
+        await chrome.storage.local.set({ keywords: localKeywords });
+        totalKeywords.innerText = formatCount(localKeywords.length)
     }
 
     listItem.appendChild(label);
