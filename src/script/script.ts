@@ -84,6 +84,7 @@ form.addEventListener("submit", async (e) => {
     localKeywords = newKeywords;
     await chrome.storage.local.set({ keywords: newKeywords });
     createKeywordListItem(keyword);
+    totalKeywords.innerText = formatCount(localKeywords.length)
 });
 
 
