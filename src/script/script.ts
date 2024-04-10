@@ -109,7 +109,7 @@ const createKeywordListItem = (keyword: string) => {
         });
         localKeywords = newKeywords;
         await chrome.storage.local.set({ keywords: localKeywords });
-        totalKeywords.innerText = formatCount(localKeywords.length)
+        totalKeywords.innerText = formatCount(localKeywords.length);
     }
 
     listItem.appendChild(label);
