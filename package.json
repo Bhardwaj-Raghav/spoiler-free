@@ -7,16 +7,20 @@
   "author": "Raghav Bhardwaj <r001dbhardwaj@gmail.com>",
   "license": "MIT",
   "private": true,
+  "type": "module",
   "scripts": {
     "watch": "yarn run watch-ts | yarn run watch-sass",
     "watch-sass": "node-sass --watch src/style/style.scss -o ./assets/style/ --source-map true",
-    "watch-ts": "tsc-watch -p tsconfig.json"
+    "watch-ts": "tsc-watch -p tsconfig.json",
+    "build": "vite build"
   },
   "devDependencies": {
     "node-sass": "^9.0.0",
     "sass": "^1.74.1",
     "tsc": "^2.0.4",
-    "tsc-watch": "^6.2.0"
+    "tsc-watch": "^6.2.0",
+    "vite": "^5.2.8",
+    "vite-plugin-static-copy": "^1.0.2"
   },
   "dependencies": {
     "@types/chrome": "^0.0.263",
