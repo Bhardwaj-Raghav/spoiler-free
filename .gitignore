@@ -3,6 +3,8 @@
 # Extra
 extra.txt
 types.ts
+extension
+*.zip
 
 # compiled output
 /dist
