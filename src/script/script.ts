@@ -2,7 +2,7 @@
 
 type ThemeSetting = 'dark' | 'light';
 
-const themeToggle: HTMLElement = document.getElementById("theme-toggle")!;
+const themeToggle: HTMLInputElement = document.getElementById("theme-toggle") as HTMLInputElement;
 const bodyElement: HTMLElement = document.body;
 const form: HTMLElement = document.getElementById("add-keyword-form");
 const input: HTMLInputElement = document.getElementById("keyword-input") as HTMLInputElement;
@@ -13,6 +13,7 @@ const keywordList: HTMLElement = document.getElementById("keyword-list");
 const settingToggles: HTMLCollectionOf<HTMLInputElement> = document.getElementsByClassName("settings-toggle") as HTMLCollectionOf<HTMLInputElement>;
 const totalKeywords: HTMLElement = document.getElementById("total-keywords-added");
 const totalBlockedCount: HTMLElement = document.getElementById("total-blocked-videos");
+const blurToggle: HTMLInputElement = document.getElementById("block-content-toggle") as HTMLInputElement;
 
 let localKeywords: string[] = [];
 let localSettings = {
@@ -23,7 +24,7 @@ let localSettings = {
     channel: true,
 };
 
-chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
+chrome.storage.local.get().then(({ mode, keywords, settings, blocked, blur }) => {
     if (mode === 'dark') {
         bodyElement.classList.add("dark-theme");
         themeToggle.setAttribute("checked", "checked");
@@ -55,6 +56,9 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked }) => {
     if (blocked) {
         totalBlockedCount.innerText = formatCount(blocked);
     }
+    if (blur) {
+        blurToggle.checked = true;
+    }
 });
 
 openList.addEventListener("click", function () {
@@ -71,6 +75,10 @@ themeToggle.addEventListener("change", async function () {
     await chrome.storage.local.set({
         "mode": isDark === 'dark' ? "light" : "dark"
     });
+});
+
+blurToggle.addEventListener("change", async function () {
+    await chrome.storage.local.set({ blur: true });
 });
 
 form.addEventListener("submit", async (e) => {
