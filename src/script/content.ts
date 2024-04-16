@@ -180,6 +180,6 @@ const doesMatchKeyWords = (string) => {
 };
 
 const updateBlockedContentCount = async () => {
-    totalBlocked = totalBlocked + 100;
+    totalBlocked = totalBlocked;
     await chrome.storage.local.set({ 'blocked': totalBlocked });
 }
