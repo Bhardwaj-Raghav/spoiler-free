@@ -4,7 +4,7 @@
   "description": "Block videos, shorts from youtube to keep it spoiler free.",
   "main": "intex.html",
   "repository": "https://github.com/Bhardwaj-Raghav/spoiler-free.git",
-  "author": "Raghav Bhardwaj <r001dbhardwaj@gmail.com>",
+  "author": "Raghav Bhardwaj",
   "license": "MIT",
   "private": true,
   "scripts": {
