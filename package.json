@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "watch": "yarn run watch-ts | yarn run watch-sass",
-    "watch-sass": "node-sass --watch src/style/style.scss -o ./assets/style/ --source-map true",
+    "watch-sass": "node-sass --watch src/style/ -o ./assets/style/ --source-map true",
     "watch-ts": "tsc-watch -p tsconfig.json"
   },
   "devDependencies": {

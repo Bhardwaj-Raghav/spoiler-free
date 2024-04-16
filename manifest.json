@@ -22,7 +22,8 @@
   "content_scripts": [
     {
       "matches": ["*://www.youtube.com/*"],
-      "js": ["assets/scripts/content.js"]
+      "js": ["assets/scripts/content.js"],
+      "css": ["assets/style/content.css"]
     }
   ],
   "permissions": ["storage"]

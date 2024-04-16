@@ -24,7 +24,7 @@ let localSettings = {
     channel: true,
 };
 
-chrome.storage.local.get().then(({ mode, keywords, settings, blocked, blur }) => {
+chrome.storage.local.get().then(({ mode, keywords, settings, blocked, remove }) => {
     if (mode === 'dark') {
         bodyElement.classList.add("dark-theme");
         themeToggle.setAttribute("checked", "checked");
@@ -56,7 +56,7 @@ chrome.storage.local.get().then(({ mode, keywords, settings, blocked, blur }) =>
     if (blocked) {
         totalBlockedCount.innerText = formatCount(blocked);
     }
-    if (blur) {
+    if (!remove) {
         blurToggle.checked = true;
     }
 });
