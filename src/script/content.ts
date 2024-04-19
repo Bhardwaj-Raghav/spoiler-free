@@ -167,7 +167,7 @@ const currentPage = (): string => {
     }
 }
 
-const doesMatchKeyWords = (string) => {
+const doesMatchKeyWords = (string: string) => {
     return keywordRegex.test(string);
 };
 
@@ -189,6 +189,6 @@ const performActionOnMatch = (element, elementToDeleteSelector) => {
 };
 
 const updateBlockedContentCount = async () => {
-    totalBlocked = totalBlocked;
+    totalBlocked = totalBlocked + 1;
     await chrome.storage.local.set({ 'blocked': totalBlocked });
 }
