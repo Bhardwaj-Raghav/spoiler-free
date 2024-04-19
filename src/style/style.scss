@@ -81,6 +81,11 @@ hr {
 }
 .custom-toggle {
   position: relative;
+  &.radio-option {
+    label.toggle-label {
+      background-color: var(--color-3);
+    }
+  }
   input[type="checkbox"].toggle-hidden {
     position: absolute;
     display: none;
@@ -199,6 +204,17 @@ section#main {
     }
   }
   .setting-section {
+    .block-content-option-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 20px;
+      p {
+        font-size: medium;
+        margin: 0px 10px;
+        min-width: 58px;
+      }
+    }
     h4 {
       margin-top: 16px;
       font-size: 16px;

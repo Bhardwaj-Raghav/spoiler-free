@@ -9,6 +9,7 @@ let _settings = {
     channel: true,
 };
 let totalBlocked: number = 0;
+let isBlur: boolean = true;
 
 function createRegexFromWords(words: string[]) {
     // Escape special characters in each word and join them with '|' to create a regex pattern
@@ -17,7 +18,7 @@ function createRegexFromWords(words: string[]) {
     return new RegExp(regexPattern, 'i');
 }
 
-chrome.storage.local.get().then(({ keywords, settings, blocked }) => {
+chrome.storage.local.get().then(({ keywords, settings, blocked, remove }) => {
     if (settings) {
         _settings.title = settings.title;
         _settings.subscription = settings.subscription;
@@ -31,6 +32,9 @@ chrome.storage.local.get().then(({ keywords, settings, blocked }) => {
     }
     if (blocked) {
         totalBlocked = blocked;
+    }
+    if (remove) {
+        isBlur = false;
     }
 });
 
@@ -96,39 +100,29 @@ const initFunctions = () => {
 const runSubscriptionPageFunc = () => {
     document.querySelectorAll(".yt-simple-endpoint.style-scope.ytd-grid-video-renderer").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
-            element.closest("ytd-grid-video-renderer.style-scope.yt-horizontal-list-renderer").remove();
-            updateBlockedContentCount();
-            // Update session list for removed videos (may be)
+            performActionOnMatch(element, "ytd-grid-video-renderer.style-scope.yt-horizontal-list-renderer");
         }
     });
     document.querySelectorAll(".style-scope.ytd-reel-item-renderer").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
-            element.closest("ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer").remove();
-            updateBlockedContentCount();
-            // Update session list for removed videos (may be)
+            performActionOnMatch(element, "ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer");
         }
     });
     document.querySelectorAll("yt-formatted-string.style-scope.ytd-rich-grid-media").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
-            element.closest("ytd-rich-item-renderer.style-scope.ytd-rich-grid-row").remove();
-            updateBlockedContentCount();
-            // Update session list for removed videos (may be)
+            performActionOnMatch(element, "ytd-rich-item-renderer.style-scope.ytd-rich-grid-row");
         }
     });
     document.querySelectorAll(".style-scope.ytd-rich-grid-slim-media#video-title").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
-            element.closest("ytd-rich-item-renderer.style-scope.ytd-rich-grid-row").remove();
-            updateBlockedContentCount();
-            // Update session list for removed videos (may be)
+            performActionOnMatch(element, "ytd-rich-item-renderer.style-scope.ytd-rich-grid-row");
         }
     });
 }
 const runShortRemoveFunc = () => {
     document.querySelectorAll("ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts yt-formatted-string.style-scope.reel-player-header-renderer").forEach((element: HTMLElement) => {
         if (doesMatchKeyWords(element.innerText)) {
-            element.closest("ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts").remove();
-            updateBlockedContentCount();
-            // Update session list for removed videos (may be)
+            performActionOnMatch(element, "ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts");
         }
     });
 }
@@ -149,9 +143,7 @@ const runRemoveFunc = (mutation, tagname: string, id: string, className: string,
         for (let i = 0; i < querySelecter.length; i++) {
             document.querySelectorAll(querySelecter[i]).forEach((element: HTMLElement) => {
                 if (doesMatchKeyWords(element.innerText)) {
-                    element.closest(elementToDeleteSelector[i]).remove();
-                    updateBlockedContentCount();
-                    // Update session list for removed videos (may be)
+                    performActionOnMatch(element, elementToDeleteSelector);
                 }
             });
         }
@@ -177,6 +169,47 @@ const currentPage = (): string => {
 
 const doesMatchKeyWords = (string: string) => {
     return keywordRegex.test(string);
+};
+
+const getMatchedKeywords = (string: string) => {
+    return string.match(keywordRegex);
+};
+
+const performActionOnMatch = (element, elementToDeleteSelector) => {
+    const mainElement = element.closest(elementToDeleteSelector);
+    if (!isBlur) {
+        mainElement.remove();
+        updateBlockedContentCount();
+    }
+    const page = currentPage();
+    if (page === "shorts" && _settings.shorts) {
+        const shortVideo: HTMLVideoElement = document.querySelector("video.video-stream.html5-main-video[controlslist='nodownload']");
+        shortVideo!.pause();
+    }
+    if (mainElement.getAttribute("spoiler-free-blured") == "blur") {
+        return;
+    }
+    const matchesFound: RegExpMatchArray = getMatchedKeywords(element.innerText);
+    const div = document.createElement("div");
+    div.className = "spoiler-free-block-video-overlay-container";
+    matchesFound.forEach(match => {
+        const badge = document.createElement("span");
+        badge.className = "spoiler-free-block-video-badge";
+        badge.innerText = match;
+        div.appendChild(badge);
+    });
+
+    const removeBlurButton = document.createElement("button");
+    removeBlurButton.innerText = "Reveal";
+    removeBlurButton.className = "spoiler-free-block-video-remove-blur";
+    removeBlurButton.onclick = function () {
+        div.remove();
+    };
+    div.appendChild(removeBlurButton);
+    mainElement.appendChild(div);
+    mainElement.setAttribute("spoiler-free-blured", 'blur');
+    updateBlockedContentCount();
+    // Update session list for removed videos (may be)
 };
 
 const updateBlockedContentCount = async () => {
