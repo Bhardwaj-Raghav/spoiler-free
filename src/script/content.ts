@@ -171,17 +171,41 @@ const doesMatchKeyWords = (string: string) => {
     return keywordRegex.test(string);
 };
 
+const getMatchedKeywords = (string: string) => {
+    return string.match(keywordRegex);
+};
+
 const performActionOnMatch = (element, elementToDeleteSelector) => {
     const mainElement = element.closest(elementToDeleteSelector);
     if (!isBlur) {
         mainElement.remove();
         updateBlockedContentCount();
     }
+    const page = currentPage();
+    if (page === "shorts" && _settings.shorts) {
+        const shortVideo: HTMLVideoElement = document.querySelector("video.video-stream.html5-main-video[controlslist='nodownload']");
+        shortVideo!.pause();
+    }
     if (mainElement.getAttribute("spoiler-free-blured") == "blur") {
         return;
     }
+    const matchesFound: RegExpMatchArray = getMatchedKeywords(element.innerText);
     const div = document.createElement("div");
     div.className = "spoiler-free-block-video-overlay-container";
+    matchesFound.forEach(match => {
+        const badge = document.createElement("span");
+        badge.className = "spoiler-free-block-video-badge";
+        badge.innerText = match;
+        div.appendChild(badge);
+    });
+
+    const removeBlurButton = document.createElement("button");
+    removeBlurButton.innerText = "Reveal";
+    removeBlurButton.className = "spoiler-free-block-video-remove-blur";
+    removeBlurButton.onclick = function () {
+        div.remove();
+    };
+    div.appendChild(removeBlurButton);
     mainElement.appendChild(div);
     mainElement.setAttribute("spoiler-free-blured", 'blur');
     updateBlockedContentCount();

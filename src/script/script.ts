@@ -78,7 +78,7 @@ themeToggle.addEventListener("change", async function () {
 });
 
 blurToggle.addEventListener("change", async function () {
-    await chrome.storage.local.set({ blur: true });
+    await chrome.storage.local.set({ remove: !this.checked }); 
 });
 
 form.addEventListener("submit", async (e) => {

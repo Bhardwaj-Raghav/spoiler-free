@@ -8,6 +8,28 @@
   border-radius: 10px !important;
   backdrop-filter: blur(16px) !important;
   outline: 2px solid #f44336 !important;
+  padding: 6px !important;
+  box-sizing: border-box !important;
+  .spoiler-free-block-video-badge {
+    display: inline-block !important;
+    background-color: rgba(0, 0, 0, 0.4) !important;
+    color: white !important;
+    padding: 6px 10px !important;
+    border-radius: 6px !important;
+    margin: 2px !important;
+    box-sizing: border-box !important;
+  }
+  .spoiler-free-block-video-remove-blur {
+    position: absolute !important;
+    bottom: 10px !important;
+    right: 10px !important;
+    border-radius: 4px !important;
+    background-color: #f44336 !important;
+    border: none !important;
+    color: white !important;
+    padding: 4px 8px !important;
+    cursor: pointer !important;
+  }
 }
 [spoiler-free-blured="blur"] {
   position: relative !important;
