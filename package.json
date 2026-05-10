@@ -2,24 +2,39 @@
   "name": "spoiler-free",
   "version": "1.0.1",
   "description": "Block videos, shorts from youtube to keep it spoiler free.",
-  "main": "intex.html",
+  "main": "index.html",
   "repository": "https://github.com/Bhardwaj-Raghav/spoiler-free.git",
   "author": "Raghav Bhardwaj",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "watch": "yarn run watch-ts | yarn run watch-sass",
-    "watch-sass": "node-sass --watch src/style/ -o ./assets/style/ --source-map true",
-    "watch-ts": "tsc-watch -p tsconfig.json"
+    "build": "npm run build:scripts && npm run build:styles",
+    "build:scripts": "tsc -p tsconfig.json",
+    "build:styles": "sass src/style:assets/style --source-map --no-error-css",
+    "dist": "npm run build && node scripts/build-extension.mjs",
+    "watch": "node scripts/dev-watch.mjs",
+    "dev": "concurrently -k -n \"watch,serve\" -c \"blue,green\" \"npm run watch\" \"serve . -l 5173\"",
+    "preview": "npm run dev",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "node-sass": "^9.0.0",
-    "sass": "^1.74.1",
-    "tsc": "^2.0.4",
-    "tsc-watch": "^6.2.0"
-  },
-  "dependencies": {
-    "@types/chrome": "^0.0.263",
-    "typescript": "^5.4.4"
+    "@eslint/js": "^9.26.0",
+    "@types/chrome": "^0.0.328",
+    "chokidar": "^4.0.3",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.26.0",
+    "eslint-config-prettier": "^10.1.2",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "sass": "^1.89.2",
+    "serve": "^14.2.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.32.0"
   }
 }

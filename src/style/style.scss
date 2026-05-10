@@ -63,7 +63,9 @@ body {
   color: var(--text-dark);
   max-width: 100%;
   width: 300px;
-  transition: background-color 200ms ease-out, color 200ms ease-out,
+  transition:
+    background-color 200ms ease-out,
+    color 200ms ease-out,
     box-shadow 200ms ease-out;
   label {
     cursor: pointer;

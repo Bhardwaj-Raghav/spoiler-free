@@ -1,0 +1,6 @@
+node_modules
+assets/scripts
+assets/style
+package-lock.json
+extension
+.github
