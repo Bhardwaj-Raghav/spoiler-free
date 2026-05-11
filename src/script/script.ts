@@ -89,9 +89,9 @@ function showPreviewBanner(): void {
   const bar = document.createElement("div");
   bar.setAttribute("role", "status");
   bar.textContent =
-    "Design preview — run npm run dev and open http://localhost:5173. Settings stay in this browser only (localStorage).";
+    "Preview mode — run npm run dev and open http://localhost:5173. Changes are stored only in this tab’s localStorage, not in the real extension.";
   bar.style.cssText =
-    "font:12px/1.4 system-ui,sans-serif;padding:8px 12px;background:#31363f;color:#eee;text-align:center";
+    "font:12px/1.45 system-ui,sans-serif;padding:8px 12px;background:#262626;color:#fafafa;text-align:center";
   document.body.prepend(bar);
 }
 
@@ -111,13 +111,58 @@ const settingToggles: HTMLCollectionOf<HTMLInputElement> = document.getElementsB
 const totalKeywords = requireEl<HTMLElement>("total-keywords-added");
 const totalBlockedCount = requireEl<HTMLElement>("total-blocked-videos");
 const blurToggle = requireEl<HTMLInputElement>("block-content-toggle");
+const keywordFormFeedback = requireEl<HTMLElement>("keyword-form-feedback");
+const keywordListEmpty = requireEl<HTMLElement>("keyword-list-empty");
+const openHelpBtn = requireEl<HTMLButtonElement>("open-help");
 
 let localKeywords: string[] = [];
+let formFeedbackClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setKeywordFormFeedback(message: string, kind: "neutral" | "ok" | "err"): void {
+  keywordFormFeedback.textContent = message;
+  keywordFormFeedback.classList.remove("sf-feedback--ok", "sf-feedback--err");
+  if (kind === "ok") {
+    keywordFormFeedback.classList.add("sf-feedback--ok");
+  } else if (kind === "err") {
+    keywordFormFeedback.classList.add("sf-feedback--err");
+  }
+  if (formFeedbackClearTimer !== null) {
+    clearTimeout(formFeedbackClearTimer);
+  }
+  if (message && kind !== "err") {
+    formFeedbackClearTimer = setTimeout(() => {
+      keywordFormFeedback.textContent = "";
+      keywordFormFeedback.classList.remove("sf-feedback--ok", "sf-feedback--err");
+      formFeedbackClearTimer = null;
+    }, 4500);
+  }
+}
+
+function openHelpPage(): void {
+  const path = "help.html";
+  if (isExtensionContext()) {
+    try {
+      const v = chrome.runtime.getManifest().version;
+      const url = `${chrome.runtime.getURL(path)}?v=${encodeURIComponent(v)}`;
+      void chrome.tabs.create({ url });
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  window.open(path, "_blank", "noopener,noreferrer");
+}
+
+function updateKeywordEmptyVisibility(): void {
+  const empty = localKeywords.length === 0;
+  keywordListEmpty.toggleAttribute("hidden", !empty);
+}
+
 const localSettings = {
   title: true,
   subscription: true,
   search: true,
-  shorts: true,
+  watch: true,
   channel: true,
 };
 
@@ -128,9 +173,11 @@ function applyTheme(mode: ThemeSetting): void {
   if (mode === "dark") {
     bodyElement.classList.add("dark-theme");
     themeToggle.checked = true;
+    themeToggle.setAttribute("aria-label", "Switch to light popup theme");
   } else {
     bodyElement.classList.add("light-theme");
     themeToggle.checked = false;
+    themeToggle.setAttribute("aria-label", "Switch to dark popup theme");
   }
 }
 
@@ -158,7 +205,7 @@ storageLocalGet().then(async ({ mode, keywords, settings, blocked, remove }) => 
     localSettings.title = s.title;
     localSettings.subscription = s.subscription;
     localSettings.search = s.search;
-    localSettings.shorts = s.shorts;
+    localSettings.watch = s.watch !== false;
     localSettings.channel = s.channel;
   }
   for (const key in settingToggles) {
@@ -177,7 +224,10 @@ storageLocalGet().then(async ({ mode, keywords, settings, blocked, remove }) => 
   if (!remove) {
     blurToggle.checked = true;
   }
+  updateKeywordEmptyVisibility();
 });
+
+openHelpBtn.addEventListener("click", openHelpPage);
 
 openList.addEventListener("click", function () {
   keywordListPage.classList.add("is-open");
@@ -185,6 +235,17 @@ openList.addEventListener("click", function () {
 });
 
 closeList.addEventListener("click", function () {
+  keywordListPage.classList.remove("is-open");
+  keywordListPage.setAttribute("aria-hidden", "true");
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") {
+    return;
+  }
+  if (!keywordListPage.classList.contains("is-open")) {
+    return;
+  }
   keywordListPage.classList.remove("is-open");
   keywordListPage.setAttribute("aria-hidden", "true");
 });
@@ -201,16 +262,22 @@ blurToggle.addEventListener("change", async function () {
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const keyword: string = input.value.toLowerCase();
-  if (localKeywords.indexOf(keyword) !== -1) {
-    return alert("Keyword already added");
+  const raw = input.value.trim().toLowerCase();
+  if (!raw) {
+    setKeywordFormFeedback("Enter a word or phrase first.", "err");
+    return;
+  }
+  if (localKeywords.indexOf(raw) !== -1) {
+    setKeywordFormFeedback("That phrase is already on your list.", "err");
+    return;
   }
   input.value = "";
-  const newKeywords = [...localKeywords, keyword];
+  const newKeywords = [...localKeywords, raw];
   localKeywords = newKeywords;
   await storageLocalSet({ keywords: localKeywords });
-  createKeywordListItem(keyword);
+  createKeywordListItem(raw);
   totalKeywords.innerText = formatCount(localKeywords.length);
+  setKeywordFormFeedback("Added.", "ok");
 });
 
 const createKeywordListItem = (keyword: string) => {
@@ -237,11 +304,13 @@ const createKeywordListItem = (keyword: string) => {
     localKeywords = newKeywords;
     await storageLocalSet({ keywords: localKeywords });
     totalKeywords.innerText = formatCount(localKeywords.length);
+    updateKeywordEmptyVisibility();
   };
 
   listItem.appendChild(label);
   listItem.appendChild(deleteButton);
   keywordList.appendChild(listItem);
+  updateKeywordEmptyVisibility();
 };
 
 const formatCount = (number: number) => {

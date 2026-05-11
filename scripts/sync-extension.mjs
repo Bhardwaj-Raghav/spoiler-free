@@ -21,6 +21,13 @@ function stampIndexHtml(html, version) {
     );
 }
 
+function stampHelpHtml(html, version) {
+  return html.replace(
+    /\.\/assets\/style\/help\.css(\?[^"'\s>]*)?/g,
+    `./assets/style/help.css?v=${version}`
+  );
+}
+
 export function syncExtensionDir() {
   const manifestSrc = join(root, "manifest.json");
   const indexSrc = join(root, "index.html");
@@ -51,6 +58,13 @@ export function syncExtensionDir() {
   let html = readFileSync(indexSrc, "utf8");
   html = stampIndexHtml(html, version);
   writeFileSync(join(dest, "index.html"), html, "utf8");
+
+  const helpSrc = join(root, "help.html");
+  if (existsSync(helpSrc)) {
+    let helpHtml = readFileSync(helpSrc, "utf8");
+    helpHtml = stampHelpHtml(helpHtml, version);
+    writeFileSync(join(dest, "help.html"), helpHtml, "utf8");
+  }
 
   const assetsDest = join(dest, "assets");
   if (existsSync(assetsDest)) {

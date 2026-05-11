@@ -1,0 +1,101 @@
+// Standalone help page (full tab) — minimal, readable
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body.help-page {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #1a1a1a;
+  background: #fafafa;
+  -webkit-font-smoothing: antialiased;
+}
+
+.help-doc {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 3rem;
+}
+
+.help-doc__head h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.help-doc__lede {
+  margin: 0;
+  color: #444;
+  font-size: 1rem;
+}
+
+.help-doc section {
+  margin-top: 2rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid #e5e5e5;
+}
+
+.help-doc h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #666;
+}
+
+.help-doc p,
+.help-doc li {
+  margin: 0 0 0.65rem;
+  color: #333;
+}
+
+.help-doc ul {
+  margin: 0 0 0.65rem;
+  padding-left: 1.25rem;
+}
+
+.help-doc li {
+  margin-bottom: 0.35rem;
+}
+
+.help-doc strong {
+  font-weight: 650;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.help-page {
+    color: #e8e8e8;
+    background: #141414;
+  }
+
+  .help-doc section {
+    border-top-color: #2a2a2a;
+  }
+
+  .help-doc__lede {
+    color: #b0b0b0;
+  }
+
+  .help-doc h2 {
+    color: #999;
+  }
+
+  .help-doc p,
+  .help-doc li {
+    color: #ccc;
+  }
+}

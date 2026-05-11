@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Spoiler Free — blur/remove tiles when video titles contain saved keywords.
+ * Spoiler Free — block (cover) or remove tiles when video titles contain saved keywords.
  * YouTube uses shadow DOM and frequently changes classes; we walk light + open shadow
  * trees and match keywords with simple case-insensitive substring search (reliable vs \\b regex).
  */
@@ -11,7 +11,7 @@ const _settings = {
   title: true,
   subscription: true,
   search: true,
-  shorts: true,
+  watch: true,
   channel: true,
 };
 let totalBlocked = 0;
@@ -20,10 +20,15 @@ let isBlur = true;
 let domObserver: MutationObserver | null = null;
 let scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastHref = "";
+let watchPollId: ReturnType<typeof setInterval> | null = null;
 
 function disconnectDomObserver(): void {
   domObserver?.disconnect();
   domObserver = null;
+  if (watchPollId !== null) {
+    clearInterval(watchPollId);
+    watchPollId = null;
+  }
 }
 
 function scheduleScan(): void {
@@ -63,16 +68,144 @@ function queryDeepWithin(selector: string, root: Element): HTMLElement[] {
 function findVideoTitleIn(host: Element): HTMLElement | null {
   const selectors = [
     "#video-title",
+    "#video-title-link",
     "yt-formatted-string#video-title",
+    "yt-formatted-string#video-title-link",
     'a[id="video-title"]',
+    'a[id="video-title-link"]',
     "#video-title.link",
     "h3 yt-formatted-string",
     "h3 a",
+    /* Watch /search lockup UI (yt-lockup-view-model, ytd-item-section-renderer.lockup) */
+    "span.ytAttributedStringHost.ytAttributedStringWhiteSpacePreWrap",
+    "yt-attributed-string span.ytAttributedStringHost",
+    "span.ytAttributedStringHost",
   ];
   for (const sel of selectors) {
     const hits = queryDeepWithin(sel, host);
     if (hits.length > 0) {
       return hits[0];
+    }
+  }
+  return null;
+}
+
+/**
+ * Walk ancestors crossing shadow roots (closest() does not escape shadow → host, so tile roots fail
+ * for titles rendered inside open shadow trees, e.g. compact recommendations on /watch).
+ */
+function resolveTileHostFromTitle(titleEl: HTMLElement, knownHost: Element | null): HTMLElement | null {
+  if (knownHost instanceof HTMLElement) {
+    return knownHost;
+  }
+  return resolveTileRoot(titleEl);
+}
+
+/** True when `el` lives under the watch-page sidebar (Up next), not the main column. */
+function isInWatchSidebar(el: Element): boolean {
+  let seenSecondary = false;
+  let node: Element | null = el;
+  for (let i = 0; i < 96 && node; i++) {
+    if (node.id === "secondary" || node.id === "secondary-inner") {
+      seenSecondary = true;
+    }
+    if (
+      node.tagName === "YTD-WATCH-NEXT-SECONDARY-RESULTS-RENDERER" ||
+      node.tagName === "YTD-WATCH-NEXT-COMPACT-LIST-RENDERER" ||
+      node.tagName === "YTD-WATCH-NEXT-MIX-RENDERER"
+    ) {
+      seenSecondary = true;
+    }
+    if (node.id === "primary" || node.id === "primary-inner") {
+      return false;
+    }
+    if (node.parentElement) {
+      node = node.parentElement;
+    } else {
+      const root = node.getRootNode();
+      if (root instanceof ShadowRoot) {
+        node = root.host;
+      } else {
+        break;
+      }
+    }
+  }
+  return seenSecondary;
+}
+
+/**
+ * Up next lives under #secondary inside ytd-app shadow trees; shallow querySelector often misses it.
+ */
+function deepFindWatchSidebarRoots(): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const seen = new WeakSet<HTMLElement>();
+  const push = (el: Element): void => {
+    if (!(el instanceof HTMLElement)) {
+      return;
+    }
+    if (seen.has(el)) {
+      return;
+    }
+    seen.add(el);
+    out.push(el);
+  };
+  function walk(el: Element): void {
+    if (el.id === "secondary" || el.id === "secondary-inner") {
+      push(el);
+    }
+    const tag = el.tagName;
+    if (
+      tag === "YTD-WATCH-NEXT-SECONDARY-RESULTS-RENDERER" ||
+      tag === "YTD-WATCH-NEXT-COMPACT-LIST-RENDERER" ||
+      tag === "YTD-WATCH-NEXT-MIX-RENDERER"
+    ) {
+      push(el);
+    }
+    if (el.shadowRoot) {
+      el.shadowRoot.querySelectorAll("*").forEach((n) => walk(n as Element));
+    }
+    Array.from(el.children).forEach((c) => walk(c as Element));
+  }
+  walk(document.documentElement);
+  return out;
+}
+
+function syncWatchPagePolling(): void {
+  if (watchPollId !== null) {
+    clearInterval(watchPollId);
+    watchPollId = null;
+  }
+  if (keywordsLower.length === 0 || !_settings.watch) {
+    return;
+  }
+  if (currentPage() !== "watch") {
+    return;
+  }
+  watchPollId = setInterval(() => {
+    scheduleScan();
+  }, 2000);
+}
+
+/** `closest()` stops at shadow roots; titles in lockup shadow trees need composed-parent walk. */
+function closestInComposedTree(el: HTMLElement, selector: string): HTMLElement | null {
+  let node: Element | null = el;
+  for (let depth = 0; depth < 120 && node; depth++) {
+    try {
+      if (node.matches(selector)) {
+        return node as HTMLElement;
+      }
+    } catch {
+      return null;
+    }
+    if (node.parentElement) {
+      node = node.parentElement;
+    } else {
+      const r = node.getRootNode();
+      if (r instanceof ShadowRoot) {
+        node = r.host;
+      } else {
+        break;
+      }
     }
   }
   return null;
@@ -85,8 +218,25 @@ function resolveTileRoot(titleEl: HTMLElement): HTMLElement | null {
     if (reel) {
       return reel as HTMLElement;
     }
+    const reelItem = titleEl.closest("ytd-reel-item-renderer");
+    if (reelItem) {
+      return reelItem as HTMLElement;
+    }
   }
-  const tags = [
+  /* Watch (and similar) Shorts shelf: ytm lockup + attributed-string titles in shadow DOM */
+  const shortsLockup =
+    closestInComposedTree(titleEl, "ytm-shorts-lockup-view-model") ??
+    closestInComposedTree(titleEl, "ytm-shorts-lockup-view-model-v2");
+  if (shortsLockup) {
+    return shortsLockup;
+  }
+  const rootSelectors = [
+    "yt-lockup-view-model",
+    ".yt-lockup-view-model",
+    ".ytLockupViewModelWrapper",
+    "ytd-item-section-renderer.lockup",
+    "ytd-item-section-renderer.ytLockupViewModelWrapper",
+    "ytd-item-section-renderer",
     "ytd-rich-item-renderer",
     "ytd-video-renderer",
     "ytd-compact-video-renderer",
@@ -97,10 +247,14 @@ function resolveTileRoot(titleEl: HTMLElement): HTMLElement | null {
     "ytd-reel-video-renderer",
     "ytd-dismissible-video-renderer",
   ];
-  for (const tag of tags) {
-    const host = titleEl.closest(tag);
-    if (host) {
-      return host as HTMLElement;
+  for (const sel of rootSelectors) {
+    try {
+      const host = titleEl.closest(sel);
+      if (host) {
+        return host as HTMLElement;
+      }
+    } catch {
+      /* invalid selector */
     }
   }
   return null;
@@ -126,17 +280,48 @@ function getMatchedKeywords(text: string): string[] {
   return keywordsLower.filter((k) => k.length > 0 && t.includes(k));
 }
 
+/** Home / subscriptions / channel grids: lockups, standard tiles, and Shorts use the same host tags. */
+const FEED_TILE_HOST_SELECTORS: readonly string[] = [
+  "ytm-shorts-lockup-view-model-v2.shortsLockupViewModelHost",
+  "ytm-shorts-lockup-view-model-v2",
+  "ytm-shorts-lockup-view-model",
+  "yt-lockup-view-model",
+  ".yt-lockup-view-model",
+  ".ytLockupViewModelWrapper",
+  "ytd-item-section-renderer.lockup",
+  "ytd-item-section-renderer.ytLockupViewModelWrapper",
+  "ytd-grid-video-renderer",
+  "ytd-rich-item-renderer",
+  "ytd-video-renderer",
+  "ytd-compact-video-renderer",
+  "ytd-compact-playlist-renderer",
+  "ytd-playlist-panel-video-renderer",
+  "ytd-reel-item-renderer",
+  "ytd-reel-video-renderer",
+];
+
+function scanDeepTileHosts(hostSelectors: readonly string[]): void {
+  const seen = new WeakSet<Element>();
+  for (const sel of hostSelectors) {
+    for (const host of queryDeepWithin(sel, document.documentElement)) {
+      if (seen.has(host)) {
+        continue;
+      }
+      seen.add(host);
+      const titleEl = findVideoTitleIn(host);
+      if (!titleEl) {
+        continue;
+      }
+      const text = tileText(titleEl);
+      if (doesMatchKeyWords(text)) {
+        performActionOnMatch(titleEl, host);
+      }
+    }
+  }
+}
+
 function scanHomeOrSubscriptions(): void {
-  document.querySelectorAll("ytd-rich-item-renderer").forEach((host) => {
-    const titleEl = findVideoTitleIn(host);
-    if (!titleEl) {
-      return;
-    }
-    const text = tileText(titleEl);
-    if (doesMatchKeyWords(text)) {
-      performActionOnMatch(titleEl);
-    }
-  });
+  scanDeepTileHosts(FEED_TILE_HOST_SELECTORS);
 }
 
 function scanSearch(): void {
@@ -152,7 +337,7 @@ function scanSearch(): void {
     }
     const text = tileText(titleEl);
     if (doesMatchKeyWords(text)) {
-      performActionOnMatch(titleEl);
+      performActionOnMatch(titleEl, host);
     }
   };
   document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer").forEach(runHost);
@@ -160,40 +345,88 @@ function scanSearch(): void {
   document.querySelectorAll("ytd-rich-item-renderer").forEach(runHost);
 }
 
+/**
+ * Channel Videos tab is mostly light-DOM grids; Featured (and redesign shelves) often sit under
+ * shadow roots and use lockup / ytm Shorts hosts — same patterns as home/watch tiles.
+ */
 function scanChannel(): void {
-  document.querySelectorAll("ytd-grid-video-renderer, ytd-rich-item-renderer").forEach((host) => {
-    const titleEl = findVideoTitleIn(host);
-    if (!titleEl) {
-      return;
-    }
-    const text = tileText(titleEl);
-    if (doesMatchKeyWords(text)) {
-      performActionOnMatch(titleEl);
-    }
-  });
-  document.querySelectorAll("ytd-reel-item-renderer").forEach((host) => {
-    const titleEl = findVideoTitleIn(host);
-    if (!titleEl) {
-      return;
-    }
-    const text = tileText(titleEl);
-    if (doesMatchKeyWords(text)) {
-      performActionOnMatch(titleEl);
-    }
-  });
+  scanDeepTileHosts(FEED_TILE_HOST_SELECTORS);
 }
 
 function scanShorts(): void {
-  document.querySelectorAll("ytd-reel-video-renderer").forEach((host) => {
+  scanDeepTileHosts(["ytd-reel-video-renderer", "ytd-reel-item-renderer"]);
+}
+
+/**
+ * Watch page: sidebar recommendations + primary-column Shorts shelf (ytm-shorts-lockup-view-model*).
+ * Only the ytm Shorts selectors are scanned under #primary so we never cover the main player tile.
+ */
+function scanWatch(): void {
+  const watchPrimaryHostSelectors = [
+    "ytm-shorts-lockup-view-model-v2.shortsLockupViewModelHost",
+    "ytm-shorts-lockup-view-model-v2",
+    "ytm-shorts-lockup-view-model",
+  ];
+  const hostSelectors = [
+    ...watchPrimaryHostSelectors,
+    "yt-lockup-view-model",
+    ".yt-lockup-view-model",
+    ".ytLockupViewModelWrapper",
+    "ytd-item-section-renderer.lockup",
+    "ytd-item-section-renderer.ytLockupViewModelWrapper",
+    "ytd-compact-video-renderer",
+    "ytd-video-renderer",
+    "ytd-compact-playlist-renderer",
+    "ytd-playlist-panel-video-renderer",
+    "ytd-rich-item-renderer",
+  ];
+  const seen = new WeakSet<Element>();
+  const runHost = (host: HTMLElement, trustSidebarScope: boolean): void => {
+    if (seen.has(host)) {
+      return;
+    }
+    if (!trustSidebarScope && !isInWatchSidebar(host)) {
+      return;
+    }
+    seen.add(host);
     const titleEl = findVideoTitleIn(host);
     if (!titleEl) {
       return;
     }
     const text = tileText(titleEl);
     if (doesMatchKeyWords(text)) {
-      performActionOnMatch(titleEl);
+      performActionOnMatch(titleEl, host);
     }
-  });
+  };
+
+  const roots = deepFindWatchSidebarRoots();
+  if (roots.length > 0) {
+    for (const root of roots) {
+      for (const sel of hostSelectors) {
+        for (const host of queryDeepWithin(sel, root)) {
+          runHost(host, true);
+        }
+      }
+    }
+  }
+
+  const primary =
+    document.querySelector("#primary-inner") ?? document.querySelector("#primary");
+  if (primary) {
+    for (const sel of watchPrimaryHostSelectors) {
+      for (const host of queryDeepWithin(sel, primary)) {
+        runHost(host, true);
+      }
+    }
+  }
+
+  if (roots.length === 0) {
+    for (const sel of hostSelectors) {
+      for (const host of queryDeepWithin(sel, document.documentElement)) {
+        runHost(host, false);
+      }
+    }
+  }
 }
 
 function scanVisibleTiles(): void {
@@ -209,8 +442,10 @@ function scanVisibleTiles(): void {
     scanSearch();
   } else if (page === "channel" && _settings.channel) {
     scanChannel();
-  } else if (page === "shorts" && _settings.shorts) {
+  } else if (page === "shorts") {
     scanShorts();
+  } else if (page === "watch" && _settings.watch) {
+    scanWatch();
   }
 }
 
@@ -222,10 +457,23 @@ function connectDomObserver(): void {
   domObserver = new MutationObserver(() => {
     scheduleScan();
   });
-  domObserver.observe(document.body, {
+  const obs = domObserver;
+  obs.observe(document.documentElement, {
     childList: true,
     subtree: true,
   });
+  const app = document.querySelector("ytd-app");
+  if (app?.shadowRoot) {
+    try {
+      obs.observe(app.shadowRoot, {
+        childList: true,
+        subtree: true,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  syncWatchPagePolling();
 }
 
 function applyStoragePayload(data: Record<string, unknown>): void {
@@ -236,7 +484,7 @@ function applyStoragePayload(data: Record<string, unknown>): void {
     _settings.title = Boolean(s.title);
     _settings.subscription = Boolean(s.subscription);
     _settings.search = Boolean(s.search);
-    _settings.shorts = Boolean(s.shorts);
+    _settings.watch = s.watch !== false;
     _settings.channel = Boolean(s.channel);
   }
 
@@ -292,6 +540,7 @@ function onNavigation(): void {
   }
   lastHref = location.href;
   scheduleScan();
+  syncWatchPagePolling();
 }
 
 lastHref = location.href;
@@ -321,20 +570,101 @@ const currentPage = (): string => {
   if (path.includes("/shorts")) {
     return "shorts";
   }
-  if (path.includes("/@")) {
+  if (path === "/watch" || path.startsWith("/watch/")) {
+    return "watch";
+  }
+  if (path === "/live" || path.startsWith("/live/")) {
+    return "watch";
+  }
+  if (
+    path.includes("/@") ||
+    path.startsWith("/channel/") ||
+    path.startsWith("/c/") ||
+    path.startsWith("/user/")
+  ) {
     return "channel";
   }
   return "";
 };
 
-/** User chose Reveal — never re-blur this tile until it leaves the DOM (e.g. scroll recycle). */
+/** User chose Reveal — never re-cover this tile until it leaves the DOM (e.g. scroll recycle). */
 const REVEALED_ATTR = "data-spoiler-free-revealed";
+
+const COVERED_STATE = "blocked";
+
+/** Ensures inset:0 overlay is clipped to the tile (set before inserting the overlay). */
+const TILE_HOST_CLASS = "spoiler-free-block-tile-host";
+
+/** Match YouTube appearance (html[dark], ytd-app) then fall back to OS preference. */
+function isYouTubeDarkTheme(): boolean {
+  const html = document.documentElement;
+  if (html.hasAttribute("dark")) {
+    return true;
+  }
+  const d = html.getAttribute("dark");
+  if (d != null && d !== "false") {
+    return true;
+  }
+  const app = document.querySelector("ytd-app");
+  if (app?.hasAttribute("dark")) {
+    return true;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
 
 type OverlayWithTeardown = HTMLElement & { sfTeardown?: () => void };
 
+/** Union of meaningful boxes so the Shorts cover spans the video, not only a thumbnail strip. */
+function mergeShortsOverlayBox(anchor: HTMLElement): { left: number; top: number; width: number; height: number } {
+  const boxes: DOMRect[] = [];
+  const push = (el: Element): void => {
+    const b = el.getBoundingClientRect();
+    if (b.width > 2 && b.height > 2) {
+      boxes.push(b);
+    }
+  };
+  push(anchor);
+  anchor.querySelectorAll("video, ytd-player").forEach(push);
+  if (window.location.pathname.includes("/shorts")) {
+    const mainVid = document.querySelector("video.video-stream.html5-main-video");
+    if (mainVid) {
+      push(mainVid);
+    }
+  }
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const b of boxes) {
+    left = Math.min(left, b.left);
+    top = Math.min(top, b.top);
+    right = Math.max(right, b.right);
+    bottom = Math.max(bottom, b.bottom);
+  }
+  if (!Number.isFinite(left)) {
+    const fb = anchor.getBoundingClientRect();
+    return {
+      left: Math.round(fb.left),
+      top: Math.round(fb.top),
+      width: Math.round(fb.width),
+      height: Math.round(fb.height),
+    };
+  }
+  left = Math.max(0, left);
+  top = Math.max(0, top);
+  right = Math.min(window.innerWidth, right);
+  bottom = Math.min(window.innerHeight, bottom);
+  return {
+    left: Math.round(left),
+    top: Math.round(top),
+    width: Math.round(Math.max(0, right - left)),
+    height: Math.round(Math.max(0, bottom - top)),
+  };
+}
+
 /**
  * Shorts paints title/metadata in layers above slotted nodes. Pin a viewport-fixed cover to the
- * reel's bounding box so blur + scrim sit above YouTube's bottom chrome.
+ * reel's bounding box so the cover sits above YouTube's bottom chrome.
  */
 function attachShortsOverlayToViewport(anchor: HTMLElement, overlay: OverlayWithTeardown): void {
   overlay.classList.add("spoiler-free-block-video-overlay-container--shorts-fixed");
@@ -344,11 +674,11 @@ function attachShortsOverlayToViewport(anchor: HTMLElement, overlay: OverlayWith
       overlay.sfTeardown?.();
       return;
     }
-    const r = anchor.getBoundingClientRect();
-    overlay.style.setProperty("left", `${Math.round(r.left)}px`, "important");
-    overlay.style.setProperty("top", `${Math.round(r.top)}px`, "important");
-    overlay.style.setProperty("width", `${Math.round(r.width)}px`, "important");
-    overlay.style.setProperty("height", `${Math.round(r.height)}px`, "important");
+    const r = mergeShortsOverlayBox(anchor);
+    overlay.style.setProperty("left", `${r.left}px`, "important");
+    overlay.style.setProperty("top", `${r.top}px`, "important");
+    overlay.style.setProperty("width", `${r.width}px`, "important");
+    overlay.style.setProperty("height", `${r.height}px`, "important");
   };
 
   const ro = new ResizeObserver(() => {
@@ -374,8 +704,8 @@ function attachShortsOverlayToViewport(anchor: HTMLElement, overlay: OverlayWith
   requestAnimationFrame(sync);
 }
 
-const performActionOnMatch = (titleEl: HTMLElement) => {
-  const mainElement = resolveTileRoot(titleEl);
+const performActionOnMatch = (titleEl: HTMLElement, knownHost: Element | null = null) => {
+  const mainElement = resolveTileHostFromTitle(titleEl, knownHost);
   if (!mainElement) {
     return;
   }
@@ -392,14 +722,15 @@ const performActionOnMatch = (titleEl: HTMLElement) => {
   }
 
   const page = currentPage();
-  if (page === "shorts" && _settings.shorts) {
+  if (page === "shorts") {
     const shortVideo = document.querySelector<HTMLVideoElement>(
       "video.video-stream.html5-main-video"
     );
     shortVideo?.pause();
   }
 
-  if (mainElement.getAttribute("spoiler-free-blured") === "blur") {
+  const covered = mainElement.getAttribute("spoiler-free-blured");
+  if (covered === COVERED_STATE || covered === "blur") {
     return;
   }
 
@@ -410,6 +741,7 @@ const performActionOnMatch = (titleEl: HTMLElement) => {
 
   const div = document.createElement("div");
   div.className = "spoiler-free-block-video-overlay-container";
+  div.dataset.spoilerFreeTheme = isYouTubeDarkTheme() ? "dark" : "light";
   matchesFound.forEach((match) => {
     const badge = document.createElement("span");
     badge.className = "spoiler-free-block-video-badge";
@@ -424,16 +756,18 @@ const performActionOnMatch = (titleEl: HTMLElement) => {
     (div as OverlayWithTeardown).sfTeardown?.();
     div.remove();
     mainElement.removeAttribute("spoiler-free-blured");
+    mainElement.classList.remove(TILE_HOST_CLASS);
     mainElement.setAttribute(REVEALED_ATTR, "");
   };
   div.appendChild(removeBlurButton);
 
+  mainElement.classList.add(TILE_HOST_CLASS);
+  mainElement.setAttribute("spoiler-free-blured", COVERED_STATE);
   if (page === "shorts") {
     attachShortsOverlayToViewport(mainElement, div as OverlayWithTeardown);
   } else {
     mainElement.appendChild(div);
   }
-  mainElement.setAttribute("spoiler-free-blured", "blur");
   void updateBlockedContentCount();
 };
 
