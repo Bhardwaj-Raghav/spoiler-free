@@ -213,7 +213,7 @@ function closestInComposedTree(el: HTMLElement, selector: string): HTMLElement |
 
 /** Nearest block host for overlays / removal (avoid brittle .style-scope classes). */
 function resolveTileRoot(titleEl: HTMLElement): HTMLElement | null {
-  if (window.location.pathname.includes("/shorts")) {
+  if (isShortsViewportExperience()) {
     const reel = titleEl.closest("ytd-reel-video-renderer");
     if (reel) {
       return reel as HTMLElement;
@@ -556,6 +556,24 @@ window.setInterval(() => {
   }
 }, 800);
 
+/**
+ * Vertical Shorts player chrome: youtube.com/shorts/… or a channel tab like /@handle/shorts.
+ * Must not match Shorts *shelves* on home/watch (those paths do not end with /shorts).
+ */
+function isShortsViewportExperience(): boolean {
+  const p = window.location.pathname;
+  if (p === "/shorts" || p.startsWith("/shorts/")) {
+    return true;
+  }
+  if (
+    p.endsWith("/shorts") &&
+    (p.includes("/@") || p.startsWith("/channel/") || p.startsWith("/c/") || p.startsWith("/user/"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 const currentPage = (): string => {
   const path = window.location.pathname;
   if (path === "/") {
@@ -567,15 +585,6 @@ const currentPage = (): string => {
   if (path.includes("/feed")) {
     return "subscription";
   }
-  if (path.includes("/shorts")) {
-    return "shorts";
-  }
-  if (path === "/watch" || path.startsWith("/watch/")) {
-    return "watch";
-  }
-  if (path === "/live" || path.startsWith("/live/")) {
-    return "watch";
-  }
   if (
     path.includes("/@") ||
     path.startsWith("/channel/") ||
@@ -583,6 +592,15 @@ const currentPage = (): string => {
     path.startsWith("/user/")
   ) {
     return "channel";
+  }
+  if (path === "/shorts" || path.startsWith("/shorts/")) {
+    return "shorts";
+  }
+  if (path === "/watch" || path.startsWith("/watch/")) {
+    return "watch";
+  }
+  if (path === "/live" || path.startsWith("/live/")) {
+    return "watch";
   }
   return "";
 };
@@ -625,7 +643,7 @@ function mergeShortsOverlayBox(anchor: HTMLElement): { left: number; top: number
   };
   push(anchor);
   anchor.querySelectorAll("video, ytd-player").forEach(push);
-  if (window.location.pathname.includes("/shorts")) {
+  if (isShortsViewportExperience()) {
     const mainVid = document.querySelector("video.video-stream.html5-main-video");
     if (mainVid) {
       push(mainVid);
@@ -721,8 +739,7 @@ const performActionOnMatch = (titleEl: HTMLElement, knownHost: Element | null = 
     return;
   }
 
-  const page = currentPage();
-  if (page === "shorts") {
+  if (isShortsViewportExperience()) {
     const shortVideo = document.querySelector<HTMLVideoElement>(
       "video.video-stream.html5-main-video"
     );
@@ -763,7 +780,7 @@ const performActionOnMatch = (titleEl: HTMLElement, knownHost: Element | null = 
 
   mainElement.classList.add(TILE_HOST_CLASS);
   mainElement.setAttribute("spoiler-free-blured", COVERED_STATE);
-  if (page === "shorts") {
+  if (isShortsViewportExperience()) {
     attachShortsOverlayToViewport(mainElement, div as OverlayWithTeardown);
   } else {
     mainElement.appendChild(div);
