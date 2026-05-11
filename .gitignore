@@ -2,11 +2,12 @@
 
 # Extra
 extra.txt
-types.ts
-extension
 *.zip
 
-# compiled output
+# Store upload bundle — run `npm run dist`, then zip `extension/` (not committed)
+/extension/
+
+# compiled output (run `npm run build` after clone)
 /dist
 /tmp
 /out-tsc

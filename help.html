@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spoiler Free — How it works</title>
+    <link rel="stylesheet" href="./assets/style/help.css?v=2.0.0" />
+  </head>
+  <body class="help-page">
+    <article class="help-doc">
+      <header class="help-doc__head">
+        <h1>How it works</h1>
+        <p class="help-doc__lede">
+          Spoiler Free runs only on <strong>YouTube</strong> in this browser. It reads video <strong>titles</strong> and
+          blocks (covers) or removes tiles when a title contains text you have saved.
+        </p>
+      </header>
+
+      <section>
+        <h2>Keywords</h2>
+        <p>
+          Matching is <strong>case-insensitive</strong>. If your phrase appears <strong>anywhere</strong> in the title,
+          it counts as a hit (substring match, not the whole title). Add multiple phrases from the popup; each is
+          checked separately.
+        </p>
+      </section>
+
+      <section>
+        <h2>Remove vs block</h2>
+        <p>
+          <strong>Remove</strong> drops the whole video row from the page. <strong>Block</strong> keeps the row but
+          covers it with a solid panel (light or dark to match YouTube) until you use <strong>Reveal</strong>. On
+          Shorts, playback pauses when a reel is blocked. Changing this may require refreshing open YouTube tabs.
+        </p>
+      </section>
+
+      <section>
+        <h2>Where it scans</h2>
+        <ul>
+          <li><strong>Home</strong> — home feed and grids, including Shorts shelves mixed into the feed.</li>
+          <li><strong>Search</strong> — search results (videos and Shorts-style results).</li>
+          <li><strong>Watch</strong> — the right-hand “Up next” column and Shorts rows under the player, including <strong>lockup</strong> tiles (<code>yt-lockup-view-model</code> / attributed-string titles).</li>
+          <li><strong>Channel</strong> — Featured and Videos (and the same tile types there).</li>
+          <li><strong>Subscriptions</strong> — the subscriptions feed.</li>
+        </ul>
+        <p>
+          The <strong>/shorts</strong> vertical feed is always scanned when you open it (same block/remove behavior).
+          Turn a place off above to leave matching videos visible there.
+        </p>
+      </section>
+
+      <section>
+        <h2>Counts</h2>
+        <p>
+          <strong>Shielded</strong> increments each time a tile is blocked or removed after a match.
+          <strong>Phrases</strong> is how many entries you have saved.
+        </p>
+      </section>
+
+      <section>
+        <h2>Limits</h2>
+        <p>
+          YouTube’s layout changes often; the extension walks the page to find titles. Very new or unusual layouts
+          might be missed. It does not read comments or descriptions—only titles on supported surfaces.
+        </p>
+      </section>
+    </article>
+  </body>
+</html>
