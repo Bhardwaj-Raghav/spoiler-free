@@ -1,8 +1,12 @@
 "use strict";
 
-/** What the extension does (match manifest / popup): scan video titles for keywords and blur or remove tiles on Home, Search, Subscriptions, Shorts, and channel pages. */
+/**
+ * Spoiler Free — blur/remove tiles when video titles contain saved keywords.
+ * YouTube uses shadow DOM and frequently changes classes; we walk light + open shadow
+ * trees and match keywords with simple case-insensitive substring search (reliable vs \\b regex).
+ */
 
-let keywordRegex: RegExp | undefined;
+let keywordsLower: string[] = [];
 const _settings = {
   title: true,
   subscription: true,
@@ -15,38 +19,7 @@ let isBlur = true;
 
 let domObserver: MutationObserver | null = null;
 let scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let lastPathname = "";
-
-const HOME_GRID_SCAN = {
-  querySelecter: [
-    "yt-formatted-string.style-scope.ytd-rich-grid-media#video-title",
-    "#video-title.style-scope.ytd-rich-grid-slim-media",
-  ],
-  elementToDeleteSelector: ["ytd-rich-item-renderer.style-scope", "ytd-rich-item-renderer.style-scope"],
-} as const;
-
-const SEARCH_GRID_SCAN = {
-  querySelecter: [
-    "yt-formatted-string.style-scope.ytd-video-renderer",
-    "#video-title.style-scope.ytd-reel-item-renderer",
-  ],
-  elementToDeleteSelector: [
-    ".style-scope.ytd-item-section-renderer",
-    "ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer",
-  ],
-} as const;
-
-function createRegexFromWords(words: string[]): RegExp | undefined {
-  const trimmed = words.map((w) => w.trim()).filter(Boolean);
-  if (trimmed.length === 0) {
-    return undefined;
-  }
-  const regexPattern =
-    "\\b" +
-    trimmed.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\b|\\b") +
-    "\\b";
-  return new RegExp(regexPattern, "i");
-}
+let lastHref = "";
 
 function disconnectDomObserver(): void {
   domObserver?.disconnect();
@@ -54,7 +27,7 @@ function disconnectDomObserver(): void {
 }
 
 function scheduleScan(): void {
-  if (!keywordRegex) {
+  if (keywordsLower.length === 0) {
     return;
   }
   if (scanDebounceTimer !== null) {
@@ -66,46 +39,184 @@ function scheduleScan(): void {
   }, 200);
 }
 
-function scanGridTiles(scan: {
-  readonly querySelecter: readonly string[];
-  readonly elementToDeleteSelector: readonly string[];
-}): void {
-  for (let i = 0; i < scan.querySelecter.length; i++) {
-    const deleteSelector = scan.elementToDeleteSelector[i];
-    if (deleteSelector === undefined) {
-      continue;
-    }
-    document.querySelectorAll(scan.querySelecter[i]).forEach((el) => {
-      const element = el as HTMLElement;
-      if (doesMatchKeyWords(element.innerText)) {
-        performActionOnMatch(element, deleteSelector);
+/** Walk light DOM + open shadow roots; collect elements matching selector from `root` down. */
+function queryDeepWithin(selector: string, root: Element): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  function walk(el: Element): void {
+    try {
+      if (el.matches(selector)) {
+        out.push(el as HTMLElement);
       }
-    });
+    } catch {
+      /* invalid selector */
+    }
+    if (el.shadowRoot) {
+      el.shadowRoot.querySelectorAll("*").forEach((n) => walk(n as Element));
+    }
+    Array.from(el.children).forEach((c) => walk(c as Element));
   }
+  walk(root);
+  return out;
 }
 
-/** Scan visible tiles for the current route (also used on load / storage updates / SPA navigations). */
+/** Prefer real video title nodes inside a card/renderer. */
+function findVideoTitleIn(host: Element): HTMLElement | null {
+  const selectors = [
+    "#video-title",
+    "yt-formatted-string#video-title",
+    'a[id="video-title"]',
+    "#video-title.link",
+    "h3 yt-formatted-string",
+    "h3 a",
+  ];
+  for (const sel of selectors) {
+    const hits = queryDeepWithin(sel, host);
+    if (hits.length > 0) {
+      return hits[0];
+    }
+  }
+  return null;
+}
+
+/** Nearest block host for overlays / removal (avoid brittle .style-scope classes). */
+function resolveTileRoot(titleEl: HTMLElement): HTMLElement | null {
+  if (window.location.pathname.includes("/shorts")) {
+    const reel = titleEl.closest("ytd-reel-video-renderer");
+    if (reel) {
+      return reel as HTMLElement;
+    }
+  }
+  const tags = [
+    "ytd-rich-item-renderer",
+    "ytd-video-renderer",
+    "ytd-compact-video-renderer",
+    "ytd-rich-grid-renderer",
+    "ytd-grid-video-renderer",
+    "ytd-playlist-panel-video-renderer",
+    "ytd-reel-item-renderer",
+    "ytd-reel-video-renderer",
+    "ytd-dismissible-video-renderer",
+  ];
+  for (const tag of tags) {
+    const host = titleEl.closest(tag);
+    if (host) {
+      return host as HTMLElement;
+    }
+  }
+  return null;
+}
+
+function tileText(titleEl: HTMLElement): string {
+  return (titleEl.innerText ?? titleEl.textContent ?? "").trim();
+}
+
+function doesMatchKeyWords(text: string): boolean {
+  if (keywordsLower.length === 0 || !text) {
+    return false;
+  }
+  const t = text.toLowerCase();
+  return keywordsLower.some((k) => k.length > 0 && t.includes(k));
+}
+
+function getMatchedKeywords(text: string): string[] {
+  if (keywordsLower.length === 0 || !text) {
+    return [];
+  }
+  const t = text.toLowerCase();
+  return keywordsLower.filter((k) => k.length > 0 && t.includes(k));
+}
+
+function scanHomeOrSubscriptions(): void {
+  document.querySelectorAll("ytd-rich-item-renderer").forEach((host) => {
+    const titleEl = findVideoTitleIn(host);
+    if (!titleEl) {
+      return;
+    }
+    const text = tileText(titleEl);
+    if (doesMatchKeyWords(text)) {
+      performActionOnMatch(titleEl);
+    }
+  });
+}
+
+function scanSearch(): void {
+  const seen = new WeakSet<Element>();
+  const runHost = (host: Element): void => {
+    if (seen.has(host)) {
+      return;
+    }
+    seen.add(host);
+    const titleEl = findVideoTitleIn(host);
+    if (!titleEl) {
+      return;
+    }
+    const text = tileText(titleEl);
+    if (doesMatchKeyWords(text)) {
+      performActionOnMatch(titleEl);
+    }
+  };
+  document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer").forEach(runHost);
+  document.querySelectorAll("ytd-reel-item-renderer").forEach(runHost);
+  document.querySelectorAll("ytd-rich-item-renderer").forEach(runHost);
+}
+
+function scanChannel(): void {
+  document.querySelectorAll("ytd-grid-video-renderer, ytd-rich-item-renderer").forEach((host) => {
+    const titleEl = findVideoTitleIn(host);
+    if (!titleEl) {
+      return;
+    }
+    const text = tileText(titleEl);
+    if (doesMatchKeyWords(text)) {
+      performActionOnMatch(titleEl);
+    }
+  });
+  document.querySelectorAll("ytd-reel-item-renderer").forEach((host) => {
+    const titleEl = findVideoTitleIn(host);
+    if (!titleEl) {
+      return;
+    }
+    const text = tileText(titleEl);
+    if (doesMatchKeyWords(text)) {
+      performActionOnMatch(titleEl);
+    }
+  });
+}
+
+function scanShorts(): void {
+  document.querySelectorAll("ytd-reel-video-renderer").forEach((host) => {
+    const titleEl = findVideoTitleIn(host);
+    if (!titleEl) {
+      return;
+    }
+    const text = tileText(titleEl);
+    if (doesMatchKeyWords(text)) {
+      performActionOnMatch(titleEl);
+    }
+  });
+}
+
 function scanVisibleTiles(): void {
-  if (!keywordRegex) {
+  if (keywordsLower.length === 0) {
     return;
   }
   const page = currentPage();
   if (page === "title" && _settings.title) {
-    scanGridTiles(HOME_GRID_SCAN);
+    scanHomeOrSubscriptions();
   } else if (page === "subscription" && _settings.subscription) {
-    scanGridTiles(HOME_GRID_SCAN);
+    scanHomeOrSubscriptions();
   } else if (page === "search" && _settings.search) {
-    scanGridTiles(SEARCH_GRID_SCAN);
+    scanSearch();
   } else if (page === "channel" && _settings.channel) {
-    runSubscriptionPageFunc();
+    scanChannel();
   } else if (page === "shorts" && _settings.shorts) {
-    runShortRemoveFunc();
+    scanShorts();
   }
 }
 
 function connectDomObserver(): void {
   disconnectDomObserver();
-  if (!keywordRegex) {
+  if (keywordsLower.length === 0) {
     return;
   }
   domObserver = new MutationObserver(() => {
@@ -130,9 +241,11 @@ function applyStoragePayload(data: Record<string, unknown>): void {
   }
 
   if (Array.isArray(keywords)) {
-    keywordRegex = createRegexFromWords(keywords as string[]);
+    keywordsLower = (keywords as unknown[])
+      .map((k) => String(k).trim().toLowerCase())
+      .filter((k) => k.length > 0);
   } else {
-    keywordRegex = undefined;
+    keywordsLower = [];
   }
 
   if (typeof blocked === "number" && Number.isFinite(blocked)) {
@@ -146,6 +259,7 @@ function setupObserversAfterHydrate(): void {
   connectDomObserver();
   requestAnimationFrame(() => {
     scanVisibleTiles();
+    requestAnimationFrame(() => scanVisibleTiles());
   });
 }
 
@@ -173,131 +287,127 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 function onNavigation(): void {
-  if (location.pathname === lastPathname) {
+  if (location.href === lastHref) {
     return;
   }
-  lastPathname = location.pathname;
+  lastHref = location.href;
   scheduleScan();
 }
 
-lastPathname = location.pathname;
+lastHref = location.href;
 window.addEventListener("popstate", onNavigation);
 
-/** YouTube fires this on in-app navigations (SPA). */
 window.addEventListener("yt-navigate-finish", () => {
   onNavigation();
 });
 
-/** Fallback if custom events differ between YouTube variants. */
 window.setInterval(() => {
-  if (location.pathname !== lastPathname) {
+  if (location.href !== lastHref) {
     onNavigation();
   }
 }, 800);
 
-const runSubscriptionPageFunc = () => {
-  document
-    .querySelectorAll(".yt-simple-endpoint.style-scope.ytd-grid-video-renderer")
-    .forEach((el) => {
-      const element = el as HTMLElement;
-      if (doesMatchKeyWords(element.innerText)) {
-        performActionOnMatch(
-          element,
-          "ytd-grid-video-renderer.style-scope.yt-horizontal-list-renderer"
-        );
-      }
-    });
-  document.querySelectorAll(".style-scope.ytd-reel-item-renderer").forEach((el) => {
-    const element = el as HTMLElement;
-    if (doesMatchKeyWords(element.innerText)) {
-      performActionOnMatch(
-        element,
-        "ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer"
-      );
-    }
-  });
-  document.querySelectorAll("yt-formatted-string.style-scope.ytd-rich-grid-media").forEach((el) => {
-    const element = el as HTMLElement;
-    if (doesMatchKeyWords(element.innerText)) {
-      performActionOnMatch(element, "ytd-rich-item-renderer.style-scope.ytd-rich-grid-row");
-    }
-  });
-  document.querySelectorAll(".style-scope.ytd-rich-grid-slim-media#video-title").forEach((el) => {
-    const element = el as HTMLElement;
-    if (doesMatchKeyWords(element.innerText)) {
-      performActionOnMatch(element, "ytd-rich-item-renderer.style-scope.ytd-rich-grid-row");
-    }
-  });
-};
-
-const runShortRemoveFunc = () => {
-  document
-    .querySelectorAll(
-      "ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts yt-formatted-string.style-scope.reel-player-header-renderer"
-    )
-    .forEach((el) => {
-      const element = el as HTMLElement;
-      if (doesMatchKeyWords(element.innerText)) {
-        performActionOnMatch(
-          element,
-          "ytd-reel-video-renderer[is-active].reel-video-in-sequence.style-scope.ytd-shorts"
-        );
-      }
-    });
-};
-
 const currentPage = (): string => {
-  const currentPath: string = window.location.pathname;
-  if (currentPath === "/") {
+  const path = window.location.pathname;
+  if (path === "/") {
     return "title";
-  } else if (currentPath === "/results") {
+  }
+  if (path === "/results") {
     return "search";
-  } else if (currentPath.includes("/feed")) {
+  }
+  if (path.includes("/feed")) {
     return "subscription";
-  } else if (currentPath.includes("/shorts")) {
+  }
+  if (path.includes("/shorts")) {
     return "shorts";
-  } else if (currentPath.includes("/@")) {
+  }
+  if (path.includes("/@")) {
     return "channel";
-  } else {
-    return "";
   }
+  return "";
 };
 
-const doesMatchKeyWords = (string: string) => {
-  return keywordRegex !== undefined && keywordRegex.test(string);
-};
+/** User chose Reveal — never re-blur this tile until it leaves the DOM (e.g. scroll recycle). */
+const REVEALED_ATTR = "data-spoiler-free-revealed";
 
-const getMatchedKeywords = (string: string) => {
-  if (keywordRegex === undefined) {
-    return null;
-  }
-  return string.match(keywordRegex);
-};
+type OverlayWithTeardown = HTMLElement & { sfTeardown?: () => void };
 
-const performActionOnMatch = (element: HTMLElement, elementToDeleteSelector: string) => {
-  const mainElement = element.closest(elementToDeleteSelector);
+/**
+ * Shorts paints title/metadata in layers above slotted nodes. Pin a viewport-fixed cover to the
+ * reel's bounding box so blur + scrim sit above YouTube's bottom chrome.
+ */
+function attachShortsOverlayToViewport(anchor: HTMLElement, overlay: OverlayWithTeardown): void {
+  overlay.classList.add("spoiler-free-block-video-overlay-container--shorts-fixed");
+
+  const sync = (): void => {
+    if (!anchor.isConnected) {
+      overlay.sfTeardown?.();
+      return;
+    }
+    const r = anchor.getBoundingClientRect();
+    overlay.style.setProperty("left", `${Math.round(r.left)}px`, "important");
+    overlay.style.setProperty("top", `${Math.round(r.top)}px`, "important");
+    overlay.style.setProperty("width", `${Math.round(r.width)}px`, "important");
+    overlay.style.setProperty("height", `${Math.round(r.height)}px`, "important");
+  };
+
+  const ro = new ResizeObserver(() => {
+    sync();
+  });
+  ro.observe(anchor);
+
+  const teardown = (): void => {
+    window.removeEventListener("scroll", sync, true);
+    window.removeEventListener("resize", sync);
+    ro.disconnect();
+    overlay.remove();
+    overlay.sfTeardown = undefined;
+  };
+
+  overlay.sfTeardown = teardown;
+
+  window.addEventListener("scroll", sync, true);
+  window.addEventListener("resize", sync);
+
+  document.body.appendChild(overlay);
+  sync();
+  requestAnimationFrame(sync);
+}
+
+const performActionOnMatch = (titleEl: HTMLElement) => {
+  const mainElement = resolveTileRoot(titleEl);
   if (!mainElement) {
     return;
   }
+  const pageText = tileText(titleEl);
+
   if (!isBlur) {
     mainElement.remove();
     void updateBlockedContentCount();
     return;
   }
+
+  if (mainElement.hasAttribute(REVEALED_ATTR)) {
+    return;
+  }
+
   const page = currentPage();
   if (page === "shorts" && _settings.shorts) {
     const shortVideo = document.querySelector<HTMLVideoElement>(
-      "video.video-stream.html5-main-video[controlslist='nodownload']"
+      "video.video-stream.html5-main-video"
     );
     shortVideo?.pause();
   }
+
   if (mainElement.getAttribute("spoiler-free-blured") === "blur") {
     return;
   }
-  const matchesFound = getMatchedKeywords(element.innerText);
-  if (!matchesFound || matchesFound.length === 0) {
+
+  const matchesFound = getMatchedKeywords(pageText);
+  if (matchesFound.length === 0) {
     return;
   }
+
   const div = document.createElement("div");
   div.className = "spoiler-free-block-video-overlay-container";
   matchesFound.forEach((match) => {
@@ -311,10 +421,18 @@ const performActionOnMatch = (element: HTMLElement, elementToDeleteSelector: str
   removeBlurButton.innerText = "Reveal";
   removeBlurButton.className = "spoiler-free-block-video-remove-blur";
   removeBlurButton.onclick = function () {
+    (div as OverlayWithTeardown).sfTeardown?.();
     div.remove();
+    mainElement.removeAttribute("spoiler-free-blured");
+    mainElement.setAttribute(REVEALED_ATTR, "");
   };
   div.appendChild(removeBlurButton);
-  mainElement.appendChild(div);
+
+  if (page === "shorts") {
+    attachShortsOverlayToViewport(mainElement, div as OverlayWithTeardown);
+  } else {
+    mainElement.appendChild(div);
+  }
   mainElement.setAttribute("spoiler-free-blured", "blur");
   void updateBlockedContentCount();
 };
