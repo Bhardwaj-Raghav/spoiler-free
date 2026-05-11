@@ -1,5 +1,7 @@
 "use strict";
 
+/** What the extension does (match manifest / popup): scan video titles for keywords and blur or remove tiles on Home, Search, Subscriptions, Shorts, and channel pages. */
+
 let keywordRegex: RegExp | undefined;
 const _settings = {
   title: true,
@@ -8,97 +10,191 @@ const _settings = {
   shorts: true,
   channel: true,
 };
-let totalBlocked: number = 0;
-let isBlur: boolean = true;
+let totalBlocked = 0;
+let isBlur = true;
 
-function createRegexFromWords(words: string[]) {
-  // Escape special characters in each word and join them with '|' to create a regex pattern
+let domObserver: MutationObserver | null = null;
+let scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let lastPathname = "";
+
+const HOME_GRID_SCAN = {
+  querySelecter: [
+    "yt-formatted-string.style-scope.ytd-rich-grid-media#video-title",
+    "#video-title.style-scope.ytd-rich-grid-slim-media",
+  ],
+  elementToDeleteSelector: ["ytd-rich-item-renderer.style-scope", "ytd-rich-item-renderer.style-scope"],
+} as const;
+
+const SEARCH_GRID_SCAN = {
+  querySelecter: [
+    "yt-formatted-string.style-scope.ytd-video-renderer",
+    "#video-title.style-scope.ytd-reel-item-renderer",
+  ],
+  elementToDeleteSelector: [
+    ".style-scope.ytd-item-section-renderer",
+    "ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer",
+  ],
+} as const;
+
+function createRegexFromWords(words: string[]): RegExp | undefined {
+  const trimmed = words.map((w) => w.trim()).filter(Boolean);
+  if (trimmed.length === 0) {
+    return undefined;
+  }
   const regexPattern =
     "\\b" +
-    words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\b|\\b") +
+    trimmed.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\b|\\b") +
     "\\b";
-  // Create a RegExp object with the constructed pattern and 'i' flag for case-insensitive matching
   return new RegExp(regexPattern, "i");
 }
 
-chrome.storage.local.get().then(({ keywords, settings, blocked, remove }) => {
-  if (settings) {
-    _settings.title = settings.title;
-    _settings.subscription = settings.subscription;
-    _settings.search = settings.search;
-    _settings.shorts = settings.shorts;
-    _settings.channel = settings.channel;
-  }
-  if (keywords && keywords.length) {
-    keywordRegex = createRegexFromWords(keywords);
-    initFunctions();
-  }
-  if (blocked) {
-    totalBlocked = blocked;
-  }
-  if (remove) {
-    isBlur = false;
-  }
-});
+function disconnectDomObserver(): void {
+  domObserver?.disconnect();
+  domObserver = null;
+}
 
-const initFunctions = () => {
-  const mutationObserver = (mutation: MutationRecord[], _observer: MutationObserver) => {
-    const page = currentPage();
-    requestAnimationFrame(() => {
-      if (page === "title" && _settings.title) {
-        runRemoveFunc(
-          mutation,
-          "yt-formatted-string",
-          "video-title",
-          "style-scope ytd-rich-grid-media",
-          [
-            "yt-formatted-string.style-scope.ytd-rich-grid-media#video-title",
-            "#video-title.style-scope.ytd-rich-grid-slim-media",
-          ],
-          ["ytd-rich-item-renderer.style-scope", "ytd-rich-item-renderer.style-scope"]
-        );
-      } else if (page === "subscription" && _settings.subscription) {
-        runRemoveFunc(
-          mutation,
-          "yt-formatted-string",
-          "video-title",
-          "style-scope ytd-rich-grid-media",
-          [
-            "yt-formatted-string.style-scope.ytd-rich-grid-media#video-title",
-            "#video-title.style-scope.ytd-rich-grid-slim-media",
-          ],
-          ["ytd-rich-item-renderer.style-scope", "ytd-rich-item-renderer.style-scope"]
-        );
-      } else if (page === "search" && _settings.search) {
-        runRemoveFunc(
-          mutation,
-          "yt-formatted-string",
-          "",
-          "style-scope ytd-video-renderer",
-          [
-            "yt-formatted-string.style-scope.ytd-video-renderer",
-            "#video-title.style-scope.ytd-reel-item-renderer",
-          ],
-          [
-            ".style-scope.ytd-item-section-renderer",
-            "ytd-reel-item-renderer.style-scope.yt-horizontal-list-renderer",
-          ]
-        );
-      } else if (page === "channel" && _settings.channel) {
-        runSubscriptionPageFunc();
-      } else if (page === "shorts" && _settings.shorts) {
-        runShortRemoveFunc();
+function scheduleScan(): void {
+  if (!keywordRegex) {
+    return;
+  }
+  if (scanDebounceTimer !== null) {
+    clearTimeout(scanDebounceTimer);
+  }
+  scanDebounceTimer = setTimeout(() => {
+    scanDebounceTimer = null;
+    scanVisibleTiles();
+  }, 200);
+}
+
+function scanGridTiles(scan: {
+  readonly querySelecter: readonly string[];
+  readonly elementToDeleteSelector: readonly string[];
+}): void {
+  for (let i = 0; i < scan.querySelecter.length; i++) {
+    const deleteSelector = scan.elementToDeleteSelector[i];
+    if (deleteSelector === undefined) {
+      continue;
+    }
+    document.querySelectorAll(scan.querySelecter[i]).forEach((el) => {
+      const element = el as HTMLElement;
+      if (doesMatchKeyWords(element.innerText)) {
+        performActionOnMatch(element, deleteSelector);
       }
     });
-  };
+  }
+}
 
-  const domLayoutObserver = new MutationObserver(mutationObserver);
-  domLayoutObserver.observe(document.body, {
+/** Scan visible tiles for the current route (also used on load / storage updates / SPA navigations). */
+function scanVisibleTiles(): void {
+  if (!keywordRegex) {
+    return;
+  }
+  const page = currentPage();
+  if (page === "title" && _settings.title) {
+    scanGridTiles(HOME_GRID_SCAN);
+  } else if (page === "subscription" && _settings.subscription) {
+    scanGridTiles(HOME_GRID_SCAN);
+  } else if (page === "search" && _settings.search) {
+    scanGridTiles(SEARCH_GRID_SCAN);
+  } else if (page === "channel" && _settings.channel) {
+    runSubscriptionPageFunc();
+  } else if (page === "shorts" && _settings.shorts) {
+    runShortRemoveFunc();
+  }
+}
+
+function connectDomObserver(): void {
+  disconnectDomObserver();
+  if (!keywordRegex) {
+    return;
+  }
+  domObserver = new MutationObserver(() => {
+    scheduleScan();
+  });
+  domObserver.observe(document.body, {
     childList: true,
     subtree: true,
   });
-};
-// Not Optimized
+}
+
+function applyStoragePayload(data: Record<string, unknown>): void {
+  const { keywords, settings, blocked, remove } = data;
+
+  if (settings && typeof settings === "object") {
+    const s = settings as typeof _settings;
+    _settings.title = Boolean(s.title);
+    _settings.subscription = Boolean(s.subscription);
+    _settings.search = Boolean(s.search);
+    _settings.shorts = Boolean(s.shorts);
+    _settings.channel = Boolean(s.channel);
+  }
+
+  if (Array.isArray(keywords)) {
+    keywordRegex = createRegexFromWords(keywords as string[]);
+  } else {
+    keywordRegex = undefined;
+  }
+
+  if (typeof blocked === "number" && Number.isFinite(blocked)) {
+    totalBlocked = blocked;
+  }
+
+  isBlur = remove !== true;
+}
+
+function setupObserversAfterHydrate(): void {
+  connectDomObserver();
+  requestAnimationFrame(() => {
+    scanVisibleTiles();
+  });
+}
+
+async function hydrateFromStorage(): Promise<void> {
+  const data = await chrome.storage.local.get();
+  applyStoragePayload(data as Record<string, unknown>);
+  setupObserversAfterHydrate();
+}
+
+void hydrateFromStorage();
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") {
+    return;
+  }
+  const keys = Object.keys(changes);
+  if (keys.length === 1 && keys[0] === "blocked") {
+    const next = changes.blocked?.newValue;
+    if (typeof next === "number" && Number.isFinite(next)) {
+      totalBlocked = next;
+    }
+    return;
+  }
+  void hydrateFromStorage();
+});
+
+function onNavigation(): void {
+  if (location.pathname === lastPathname) {
+    return;
+  }
+  lastPathname = location.pathname;
+  scheduleScan();
+}
+
+lastPathname = location.pathname;
+window.addEventListener("popstate", onNavigation);
+
+/** YouTube fires this on in-app navigations (SPA). */
+window.addEventListener("yt-navigate-finish", () => {
+  onNavigation();
+});
+
+/** Fallback if custom events differ between YouTube variants. */
+window.setInterval(() => {
+  if (location.pathname !== lastPathname) {
+    onNavigation();
+  }
+}, 800);
+
 const runSubscriptionPageFunc = () => {
   document
     .querySelectorAll(".yt-simple-endpoint.style-scope.ytd-grid-video-renderer")
@@ -133,6 +229,7 @@ const runSubscriptionPageFunc = () => {
     }
   });
 };
+
 const runShortRemoveFunc = () => {
   document
     .querySelectorAll(
@@ -147,43 +244,6 @@ const runShortRemoveFunc = () => {
         );
       }
     });
-};
-
-const runRemoveFunc = (
-  mutation: MutationRecord[],
-  tagname: string,
-  id: string,
-  className: string,
-  querySelecter: string[],
-  elementToDeleteSelector: string[]
-) => {
-  let newTitles = false;
-  for (let i = 0; i < mutation.length; i++) {
-    const target = mutation[i].target;
-    if (!(target instanceof HTMLElement)) {
-      continue;
-    }
-    if (
-      id === target.id &&
-      className === target.className &&
-      tagname === target.tagName.toLowerCase()
-    ) {
-      newTitles = true;
-      break;
-    }
-  }
-  if (newTitles) {
-    for (let i = 0; i < querySelecter.length; i++) {
-      const deleteSelector = elementToDeleteSelector[i];
-      if (deleteSelector === undefined) continue;
-      document.querySelectorAll(querySelecter[i]).forEach((el) => {
-        const element = el as HTMLElement;
-        if (doesMatchKeyWords(element.innerText)) {
-          performActionOnMatch(element, deleteSelector);
-        }
-      });
-    }
-  }
 };
 
 const currentPage = (): string => {
@@ -221,7 +281,8 @@ const performActionOnMatch = (element: HTMLElement, elementToDeleteSelector: str
   }
   if (!isBlur) {
     mainElement.remove();
-    updateBlockedContentCount();
+    void updateBlockedContentCount();
+    return;
   }
   const page = currentPage();
   if (page === "shorts" && _settings.shorts) {
@@ -230,7 +291,7 @@ const performActionOnMatch = (element: HTMLElement, elementToDeleteSelector: str
     );
     shortVideo?.pause();
   }
-  if (mainElement.getAttribute("spoiler-free-blured") == "blur") {
+  if (mainElement.getAttribute("spoiler-free-blured") === "blur") {
     return;
   }
   const matchesFound = getMatchedKeywords(element.innerText);
@@ -255,8 +316,7 @@ const performActionOnMatch = (element: HTMLElement, elementToDeleteSelector: str
   div.appendChild(removeBlurButton);
   mainElement.appendChild(div);
   mainElement.setAttribute("spoiler-free-blured", "blur");
-  updateBlockedContentCount();
-  // Update session list for removed videos (may be)
+  void updateBlockedContentCount();
 };
 
 const updateBlockedContentCount = async () => {

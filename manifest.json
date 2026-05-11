@@ -1,7 +1,7 @@
 {
   "name": "Spoiler Free",
-  "version": "1.0.1",
-  "description": "Block videos, shorts from youtube to keep it spoiler free.",
+  "version": "2.0.0",
+  "description": "Block videos and shorts on YouTube that match your keywords — spoiler-free browsing.",
   "manifest_version": 3,
   "author": "Raghav Bhardwaj",
   "action": {

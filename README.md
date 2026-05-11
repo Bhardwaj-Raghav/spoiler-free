@@ -12,13 +12,12 @@ The "Spoiler Free" Google Chrome Extension is designed to enhance your browsing 
 
 - **Requirements:** [Node.js](https://nodejs.org/) 20+ and npm.
 - **Install:** `npm install`
-- **Build** (compile TypeScript + Sass to `assets/`): `npm run build`  
-  After cloning, run this before loading the extension in Chrome, because generated files under `assets/scripts` and `assets/style` are not committed.
-- **Store package** (folder you zip for the Chrome Web Store): `npm run dist` — compiles, then writes **`extension/`** with `manifest.json`, `index.html`, and `assets/`. That directory is **gitignored** on purpose so release artifacts are not committed.
-- **Develop** (recommended): `npm run dev` — runs the file watcher (TS + Sass + sync `index.html` → `extension/`) and serves [http://localhost:5173](http://localhost:5173) for popup preview. Refresh the browser after saves.
+- **Build:** `npm run build` compiles TypeScript + Sass into **`assets/`** at the project root, then copies **`manifest.json`**, **`index.html`**, and the full **`assets/`** tree into **`extension/`** (same layout Chrome expects when you zip for the store). Generated files are not committed — always build after clone.
+- **Dist / zip:** `npm run dist` runs the same as **`npm run build`**. Zip **`extension/`** for upload. That folder is **gitignored** on purpose.
+- **Develop** (recommended): `npm run dev` — watches TS/Sass/HTML/manifest and keeps **`extension/`** in sync, plus serves [http://localhost:5173](http://localhost:5173) for popup preview. Reload the extension in Chrome after changes.
 - **Watch only** (no local server): `npm run watch`
 - **`npm run preview`** is the same as **`npm run dev`** (alias).
-- **Load the extension:** Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → select this project folder (the one that contains `manifest.json`).
+- **Load the extension:** Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → choose the **`extension`** folder inside this repo (after `npm run build`), so manifest, popup, and compiled CSS/JS stay aligned. You can also load the repo root if `manifest.json` and `assets/` are present there — both work after a build.
 - **Lint / format:** `npm run lint`, `npm run format`
 
 ---

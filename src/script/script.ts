@@ -10,6 +10,31 @@ function isExtensionContext(): boolean {
   }
 }
 
+/**
+ * Relative `href`s on `<link>` can fail to resolve for extension popups (`chrome-extension://…`).
+ * Force the packaged URL so styles match preview/local server.
+ */
+function ensurePopupStylesheet(): void {
+  if (!isExtensionContext()) return;
+  try {
+    const v = chrome.runtime.getManifest().version;
+    const url = `${chrome.runtime.getURL("assets/style/style.css")}?v=${encodeURIComponent(v)}`;
+    let link =
+      document.querySelector<HTMLLinkElement>("link[data-sf-popup-css]") ??
+      document.querySelector<HTMLLinkElement>('link[href*="style.css"]') ??
+      document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]');
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "stylesheet";
+      document.head.insertBefore(link, document.head.firstChild);
+    }
+    link.setAttribute("data-sf-popup-css", "1");
+    link.href = url;
+  } catch {
+    /* ignore */
+  }
+}
+
 function requireEl<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
   if (!node) {
@@ -70,6 +95,8 @@ function showPreviewBanner(): void {
   document.body.prepend(bar);
 }
 
+ensurePopupStylesheet();
+
 const themeToggle = requireEl<HTMLInputElement>("theme-toggle");
 const bodyElement: HTMLElement = document.body;
 const form = requireEl<HTMLElement>("add-keyword-form");
@@ -96,11 +123,29 @@ const localSettings = {
 
 showPreviewBanner();
 
-storageLocalGet().then(({ mode, keywords, settings, blocked, remove }) => {
+function applyTheme(mode: ThemeSetting): void {
+  bodyElement.classList.remove("light-theme", "dark-theme");
   if (mode === "dark") {
     bodyElement.classList.add("dark-theme");
-    themeToggle.setAttribute("checked", "checked");
+    themeToggle.checked = true;
+  } else {
+    bodyElement.classList.add("light-theme");
+    themeToggle.checked = false;
   }
+}
+
+storageLocalGet().then(async ({ mode, keywords, settings, blocked, remove }) => {
+  let resolved: ThemeSetting;
+  if (mode === "dark") {
+    resolved = "dark";
+  } else if (mode === "light") {
+    resolved = "light";
+  } else {
+    resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    await storageLocalSet({ mode: resolved });
+  }
+  applyTheme(resolved);
+
   if (keywords) {
     localKeywords = keywords as string[];
     localKeywords.forEach((keyword) => {
@@ -136,18 +181,18 @@ storageLocalGet().then(({ mode, keywords, settings, blocked, remove }) => {
 
 openList.addEventListener("click", function () {
   keywordListPage.classList.add("is-open");
+  keywordListPage.setAttribute("aria-hidden", "false");
 });
 
 closeList.addEventListener("click", function () {
   keywordListPage.classList.remove("is-open");
+  keywordListPage.setAttribute("aria-hidden", "true");
 });
 
 themeToggle.addEventListener("change", async function () {
-  bodyElement.classList.toggle("dark-theme");
-  const isDark = (await storageLocalGet("mode")).mode as ThemeSetting | undefined;
-  await storageLocalSet({
-    mode: isDark === "dark" ? "light" : "dark",
-  });
+  const next: ThemeSetting = themeToggle.checked ? "dark" : "light";
+  applyTheme(next);
+  await storageLocalSet({ mode: next });
 });
 
 blurToggle.addEventListener("change", async function () {
@@ -176,8 +221,10 @@ const createKeywordListItem = (keyword: string) => {
   label.innerText = keyword;
 
   const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
   deleteButton.className = "delete-keyword";
   deleteButton.value = keyword;
+  deleteButton.setAttribute("aria-label", `Remove keyword ${keyword}`);
   deleteButton.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512">
             <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 46.3-19.7 47.9-45L416 128z" />

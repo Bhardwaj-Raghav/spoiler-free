@@ -8,7 +8,7 @@
     "skipLibCheck": true,
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "outDir": "assets/scripts/",
     "rootDir": "./src/script",
     "types": ["chrome"],
